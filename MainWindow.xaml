@@ -495,6 +495,7 @@
                     <Button x:Name="ToolDrawBtn" Content="&#xED63;" Style="{StaticResource ToolbarButton}" Click="ToolDraw_Click" ToolTip="Draw Tool - freehand ink"/>
                     <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
                     <Button x:Name="ToolSignatureBtn" Content="&#xEE56;" Style="{StaticResource ToolbarButton}" Click="ToolSignature_Click" ToolTip="Signature - create and place signatures"/>
+                    <Button x:Name="ToolCropBtn" Content="&#xE7A8;" Style="{StaticResource ToolbarButton}" Click="ToolCrop_Click" ToolTip="Crop pages - drag a rectangle, then apply"/>
                     <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
                     <Button Content="&#xE7A7;" Style="{StaticResource ToolbarButton}" Click="Undo_Click" ToolTip="Undo Last (Ctrl+Z)"/>
                     <Button Content="&#xED62;" Style="{StaticResource ToolbarButtonDanger}" Click="ClearAnnotations_Click" ToolTip="Clear All Annotations"/>

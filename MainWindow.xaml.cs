@@ -39,6 +39,7 @@ namespace KillerPDF
         private Point _drawStart;
         private UIElement? _activePreview;
         private InkAnnotation? _activeInk;
+        private CropAnnotation? _activeCrop;
         private TextBox? _activeTextBox;
         private PageAnnotation? _selectedAnnotation;
         private Border? _selectionBorder;
@@ -66,6 +67,8 @@ namespace KillerPDF
         private List<SavedSignature> _savedSignatures = new();
         private SavedSignature? _pendingSignature;
         private Border? _signaturePopup;
+        private Border? _cropPopup;
+        private CheckBox? _cropApplyAllCheck;
         private static readonly string SignatureDir = AppDomain.CurrentDomain.BaseDirectory;
         private static readonly string SignatureFile = System.IO.Path.Combine(SignatureDir, "signatures.json");
 
@@ -77,6 +80,7 @@ namespace KillerPDF
         private Button _toolHighlightBtn = null!;
         private Button _toolDrawBtn = null!;
         private Button _toolSignatureBtn = null!;
+        private Button _toolCropBtn = null!;
         private Button _saveAsBtnRef = null!;
         private Button _closeFileBtnRef = null!;
         private ComboBox _zoomBox = null!;
@@ -101,6 +105,7 @@ namespace KillerPDF
             _toolHighlightBtn = (Button)FindName("ToolHighlightBtn")!;
             _toolDrawBtn = (Button)FindName("ToolDrawBtn")!;
             _toolSignatureBtn = (Button)FindName("ToolSignatureBtn")!;
+            _toolCropBtn = (Button)FindName("ToolCropBtn")!;
             _saveAsBtnRef = (Button)FindName("SaveAsBtn")!;
             _closeFileBtnRef = (Button)FindName("CloseFileBtn")!;
             _zoomBox = (ComboBox)FindName("ZoomBox")!;
@@ -257,6 +262,7 @@ namespace KillerPDF
             menu.Items.Add(MakeMenuItem("Text Tool", (s, e) => SetTool(EditTool.Text)));
             menu.Items.Add(MakeMenuItem("Highlight Tool", (s, e) => SetTool(EditTool.Highlight)));
             menu.Items.Add(MakeMenuItem("Draw Tool", (s, e) => SetTool(EditTool.Draw)));
+            menu.Items.Add(MakeMenuItem("Crop Tool", (s, e) => SetTool(EditTool.Crop)));
             menu.Items.Add(new Separator());
             menu.Items.Add(MakeMenuItem("Delete Selected", (s, e) => DeleteSelected(), "Delete"));
             menu.Items.Add(MakeMenuItem("Undo Last", (s, e) => Undo_Click(s!, e), "Ctrl+Z"));
@@ -532,7 +538,8 @@ namespace KillerPDF
                 (_toolTextBtn, EditTool.Text),
                 (_toolHighlightBtn, EditTool.Highlight),
                 (_toolDrawBtn, EditTool.Draw),
-                (_toolSignatureBtn, EditTool.Signature)
+                (_toolSignatureBtn, EditTool.Signature),
+                (_toolCropBtn, EditTool.Crop)
             };
             var green = (SolidColorBrush)FindResource("AccentGreen");
             var greenDim = (SolidColorBrush)FindResource("AccentGreenDim");
@@ -550,6 +557,7 @@ namespace KillerPDF
                 EditTool.Highlight => Cursors.Cross,
                 EditTool.Draw => Cursors.Pen,
                 EditTool.Signature => Cursors.Hand,
+                EditTool.Crop => Cursors.Cross,
                 _ => Cursors.Arrow
             };
 
@@ -565,12 +573,23 @@ namespace KillerPDF
                 HideSignaturePopup();
                 _pendingSignature = null;
             }
+
+            if (tool != EditTool.Crop)
+            {
+                HideCropPopup();
+                ClearCropSelection();
+            }
         }
 
         private void ToolSelect_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Select);
         private void ToolText_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Text);
         private void ToolHighlight_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Highlight);
         private void ToolDraw_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Draw);
+        private void ToolCrop_Click(object sender, RoutedEventArgs e)
+        {
+            SetTool(EditTool.Crop);
+            ShowCropPopup();
+        }
         private void ToolSignature_Click(object sender, RoutedEventArgs e)
         {
             if (_signaturePopup is not null)
@@ -755,6 +774,94 @@ namespace KillerPDF
                 previewGrid?.Children.Remove(_drawSettingsBar);
                 _drawSettingsBar = null;
             }
+        }
+
+        // ============================================================
+        // Crop settings bar
+        // ============================================================
+
+        private void ShowCropPopup()
+        {
+            if (_cropPopup is not null)
+            {
+                _cropPopup.Visibility = Visibility.Visible;
+                return;
+            }
+
+            var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 4, 8, 4) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Drag a crop rectangle",
+                Foreground = (SolidColorBrush)FindResource("TextSecondary"),
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 10, 0)
+            });
+
+            _cropApplyAllCheck = new CheckBox
+            {
+                Content = "Apply to all pages",
+                Foreground = (SolidColorBrush)FindResource("TextPrimary"),
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            panel.Children.Add(_cropApplyAllCheck);
+
+            var applyBtn = new Button
+            {
+                Content = "Apply crop",
+                Style = (Style)FindResource("ToolbarButtonAccent"),
+                ToolTip = "Apply the selected crop rectangle"
+            };
+            applyBtn.Click += ApplyCrop_Click;
+            panel.Children.Add(applyBtn);
+
+            var resetBtn = new Button
+            {
+                Content = "Reset",
+                Style = (Style)FindResource("ToolbarButton"),
+                ToolTip = "Clear the current crop rectangle"
+            };
+            resetBtn.Click += (s, e) => ClearCropSelection();
+            panel.Children.Add(resetBtn);
+
+            var cancelBtn = new Button
+            {
+                Content = "Cancel",
+                Style = (Style)FindResource("ToolbarButton"),
+                ToolTip = "Cancel cropping"
+            };
+            cancelBtn.Click += (s, e) => SetTool(EditTool.Select);
+            panel.Children.Add(cancelBtn);
+
+            _cropPopup = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
+                BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                CornerRadius = new CornerRadius(0, 0, 4, 4),
+                Padding = new Thickness(4),
+                Child = panel,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+
+            var previewArea = PagePreviewPanel.Parent as Grid;
+            if (previewArea is not null)
+            {
+                Panel.SetZIndex(_cropPopup, 101);
+                previewArea.Children.Add(_cropPopup);
+            }
+        }
+
+        private void HideCropPopup()
+        {
+            if (_cropPopup is not null)
+                _cropPopup.Visibility = Visibility.Collapsed;
         }
 
         // ============================================================
@@ -1401,6 +1508,29 @@ namespace KillerPDF
                     _annotationCanvas.CaptureMouse();
                     break;
 
+                case EditTool.Crop:
+                    ClearSelection();
+                    ClearCropSelection();
+                    _isDrawing = true;
+                    _drawStart = pos;
+                    var cropRect = new Rectangle
+                    {
+                        Fill = new SolidColorBrush(Color.FromArgb(35, 74, 222, 128)),
+                        Stroke = (SolidColorBrush)FindResource("AccentGreen"),
+                        StrokeThickness = 2,
+                        StrokeDashArray = new DoubleCollection { 6, 3 },
+                        Width = 0,
+                        Height = 0,
+                        IsHitTestVisible = false
+                    };
+                    Canvas.SetLeft(cropRect, pos.X);
+                    Canvas.SetTop(cropRect, pos.Y);
+                    _annotationCanvas.Children.Add(cropRect);
+                    _activePreview = cropRect;
+                    _annotationCanvas.CaptureMouse();
+                    e.Handled = true;
+                    break;
+
                 case EditTool.Draw:
                     ClearSelection();
                     _isDrawing = true;
@@ -1455,7 +1585,9 @@ namespace KillerPDF
 
             switch (_currentTool)
             {
-                case EditTool.Highlight when _activePreview is Rectangle rect:
+                case EditTool.Highlight when _activePreview is Rectangle:
+                case EditTool.Crop when _activePreview is Rectangle:
+                    var rect = (Rectangle)_activePreview;
                     Canvas.SetLeft(rect, Math.Min(pos.X, _drawStart.X));
                     Canvas.SetTop(rect, Math.Min(pos.Y, _drawStart.Y));
                     rect.Width = Math.Abs(pos.X - _drawStart.X);
@@ -1532,6 +1664,25 @@ namespace KillerPDF
                     }
                     break;
 
+                case EditTool.Crop when _activePreview is Rectangle rect:
+                    if (rect.Width > 5 && rect.Height > 5)
+                    {
+                        _activeCrop = new CropAnnotation
+                        {
+                            PageIndex = pageIdx,
+                            Bounds = new Rect(Canvas.GetLeft(rect), Canvas.GetTop(rect), rect.Width, rect.Height)
+                        };
+                        ShowCropPopup();
+                        SetStatus("Crop rectangle selected - choose Apply crop, Reset, or Cancel");
+                    }
+                    else
+                    {
+                        _annotationCanvas.Children.Remove(rect);
+                        _activePreview = null;
+                        _activeCrop = null;
+                    }
+                    break;
+
                 case EditTool.Draw when _activeInk is not null:
                     if (_activeInk.Points.Count > 2)
                     {
@@ -1545,6 +1696,110 @@ namespace KillerPDF
                     break;
             }
             _activePreview = null;
+        }
+
+        private void ClearCropSelection()
+        {
+            bool hasCropSelection = _activeCrop is not null || _currentTool == EditTool.Crop;
+            if (!hasCropSelection) return;
+
+            if (_activePreview is Rectangle rect)
+                _annotationCanvas.Children.Remove(rect);
+
+            if (_activePreview is Rectangle)
+                _activePreview = null;
+            _activeCrop = null;
+            if (_currentTool == EditTool.Crop)
+                SetStatus("Crop cleared - drag a new crop rectangle");
+        }
+
+        private void ApplyCrop_Click(object sender, RoutedEventArgs e)
+        {
+            if (_doc is null || _currentFile is null)
+            {
+                KillerDialog.Show(this, "Open a PDF first.");
+                return;
+            }
+
+            if (_activeCrop is null)
+            {
+                KillerDialog.Show(this, "Drag a crop rectangle first.", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            int pageIdx = _activeCrop.PageIndex;
+            if (pageIdx < 0 || pageIdx >= _doc.PageCount || !_renderDims.ContainsKey(pageIdx))
+            {
+                KillerDialog.Show(this, "The selected crop page is no longer available.", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ClearCropSelection();
+                return;
+            }
+
+            string sourcePath = _currentFile;
+            int selectedIdx = PageList.SelectedIndex;
+            bool applyToAll = _cropApplyAllCheck?.IsChecked == true;
+
+            try
+            {
+                CommitActiveTextBox();
+                var cropRect = CanvasRectToPdfCropRect(pageIdx, _activeCrop.Bounds);
+                _doc.Close();
+                _doc = null;
+
+                string croppedPath = CropService.Apply(sourcePath, pageIdx, cropRect, applyToAll);
+                _doc = PdfReader.Open(croppedPath, PdfDocumentOpenMode.Modify);
+                _currentFile = croppedPath;
+                _annotations.Clear();
+                _renderDims.Clear();
+                _allSearchRects.Clear();
+                _searchResultPages.Clear();
+                _searchPageCursor = -1;
+                RefreshPageList();
+                if (selectedIdx >= 0 && selectedIdx < PageList.Items.Count)
+                    PageList.SelectedIndex = selectedIdx;
+                else if (PageList.Items.Count > 0)
+                    PageList.SelectedIndex = 0;
+                ClearCropSelection();
+                MarkDirty();
+                SetStatus(applyToAll ? "Crop applied to all pages" : $"Crop applied to page {pageIdx + 1}");
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    if (_doc is null && System.IO.File.Exists(sourcePath))
+                        _doc = PdfReader.Open(sourcePath, PdfDocumentOpenMode.Modify);
+                }
+                catch { }
+                KillerDialog.Show(this, $"Crop failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private Rect CanvasRectToPdfCropRect(int pageIdx, Rect canvasBounds)
+        {
+            var (renderW, renderH) = _renderDims[pageIdx];
+            var page = _doc!.Pages[pageIdx];
+            var box = GetVisiblePageBox(page);
+            double boxLeft = Math.Min(box.X1, box.X2);
+            double boxRight = Math.Max(box.X1, box.X2);
+            double boxBottom = Math.Min(box.Y1, box.Y2);
+            double boxTop = Math.Max(box.Y1, box.Y2);
+            double sx = (boxRight - boxLeft) / renderW;
+            double sy = (boxTop - boxBottom) / renderH;
+
+            double left = boxLeft + canvasBounds.Left * sx;
+            double right = boxLeft + canvasBounds.Right * sx;
+            double top = boxTop - canvasBounds.Top * sy;
+            double bottom = boxTop - canvasBounds.Bottom * sy;
+            return new Rect(left, bottom, right - left, top - bottom);
+        }
+
+        private static PdfRectangle GetVisiblePageBox(PdfPage page)
+        {
+            var crop = page.CropBox;
+            if (Math.Abs(crop.X2 - crop.X1) > 0.1 && Math.Abs(crop.Y2 - crop.Y1) > 0.1)
+                return crop;
+            return page.MediaBox;
         }
 
         // ============================================================
@@ -2730,6 +2985,8 @@ namespace KillerPDF
             CloseSearchBar();
             HideDrawSettings();
             HideSignaturePopup();
+            HideCropPopup();
+            ClearCropSelection();
             SetTool(EditTool.Select);
             if (_closeFileBtnRef != null) _closeFileBtnRef.IsEnabled = false;
             MarkDirty(false);
@@ -3346,6 +3603,7 @@ namespace KillerPDF
                 CommitActiveTextBox();
                 ClearSelection();
                 ClearTextSelection();
+                ClearCropSelection();
                 RenderPage(PageList.SelectedIndex);
                 ApplyZoom();
                 // Re-highlight search results on this page if a search is active
