@@ -8,12 +8,19 @@ name: build
 # windows-latest does.
 #
 # Migration plan: once #43 (modernize to net9.0-windows) merges, swap
-#   runs-on: windows-latest
-# to
-#   runs-on: tdp-extend
-# and replace the publish step's `-r win-x64` is fine to keep. The
-# tdp-extend Linux ARC runner has the .NET 9 SDK preinstalled and can build
-# net9.0-windows projects with EnableWindowsTargeting (see comment below).
+# this job to:
+#
+#   jobs:
+#     build-wpf:
+#       runs-on: tdp-extend
+#       steps:
+#         - uses: actions/checkout@v4
+#         - run: dotnet build KillerPDF.csproj -c Release -p:EnableWindowsTargeting=true
+#
+# The tdp-extend Linux ARC scaleset has the .NET 9 SDK preinstalled and
+# builds net9.0-windows projects via EnableWindowsTargeting=true. Until
+# #43 lands, net48 needs the Windows-only msbuild/Reference Assemblies
+# stack which only windows-latest provides.
 
 on:
   push:
