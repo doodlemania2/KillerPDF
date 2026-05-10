@@ -11,6 +11,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Docnet.Core;
 using Docnet.Core.Models;
+using KillerPDF.Services;
 using Microsoft.Win32;
 using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
@@ -2974,37 +2975,29 @@ namespace KillerPDF
             try
             {
                 bool hasAnnotations = _annotations.Values.Any(list => list.Count > 0);
-                string printPath;
-
-                if (hasAnnotations)
-                {
-                    // Save a temp copy with annotations flattened for printing
-                    var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_clean_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(tempClean);
-                    DrawAnnotationsOnDocument();
-                    printPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_print_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(printPath);
-                    // Restore clean state
-                    _doc.Close();
-                    _doc = PdfReader.Open(tempClean, PdfDocumentOpenMode.Modify);
-                    _currentFile = tempClean;
-                }
-                else
-                {
-                    printPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_print_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(printPath);
-                }
-
-                Process.Start(new ProcessStartInfo(printPath) { Verb = "print", UseShellExecute = true });
-                SetStatus("Sent to printer");
+                new PrintService().Print(this, _doc, _currentFile, hasAnnotations, DrawAnnotationsOnDocument, ReloadPrintedDocument, SetStatus);
             }
             catch (Exception ex)
             {
                 KillerDialog.Show(this, $"Print failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void ReloadPrintedDocument(string path)
+        {
+            var previous = _doc;
+            PdfDocument reopened;
+            try
+            {
+                reopened = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
+            }
+            catch (Exception ex) when (IsOwnerPasswordException(ex))
+            {
+                reopened = PdfReader.Open(path, PdfDocumentOpenMode.ReadOnly);
+            }
+            _doc = reopened;
+            _currentFile = path;
+            previous?.Close();
         }
 
         // ============================================================
