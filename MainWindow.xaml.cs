@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.ExceptionServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -11,6 +14,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Docnet.Core;
 using Docnet.Core.Models;
+using KillerPDF.Services;
 using Microsoft.Win32;
 using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
@@ -21,6 +25,11 @@ namespace KillerPDF
 {
     public partial class MainWindow : Window
     {
+        private readonly PdfDocumentService _pdfDocumentService = new();
+        private CancellationTokenSource? _openCancellationTokenSource;
+        private CancellationTokenSource? _renderCancellationTokenSource;
+        private int _busyDepth;
+        private bool _isFileOperationBusy;
         private PdfDocument? _doc;
         private string? _currentFile;
         private Point _dragStartPoint;
@@ -110,11 +119,11 @@ namespace KillerPDF
             SourceInitialized += MainWindow_SourceInitialized;
 
             // Open a file passed via command-line / file association (e.g. double-clicking a .pdf)
-            Loaded += (_, _) =>
+            Loaded += async (_, _) =>
             {
                 var args = Environment.GetCommandLineArgs();
                 if (args.Length > 1 && System.IO.File.Exists(args[1]))
-                    OpenFile(args[1]);
+                    await OpenFileAsync(args[1]);
             };
         }
 
@@ -278,80 +287,109 @@ namespace KillerPDF
         // File operations
         // ============================================================
 
-        private void OpenFile(string path)
+        private async Task OpenFileAsync(string path)
         {
+            _openCancellationTokenSource?.Cancel();
+            _renderCancellationTokenSource?.Cancel();
+            _openCancellationTokenSource?.Dispose();
+            _openCancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _openCancellationTokenSource.Token;
+
+            SetFileOperationBusy(true, $"Opening {System.IO.Path.GetFileName(path)}...");
             try
             {
-                if (_doc is not null) { _doc.Close(); _doc = null; }
-                _doc = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
-                _currentFile = path;
-                FinishOpenFile(path, path);
+                var result = await OpenFileCoreAsync(path, null, cancellationToken);
+                await FinishOpenFileAsync(result, cancellationToken);
             }
-            catch (Exception ex) when (IsOwnerPasswordException(ex))
+            catch (OperationCanceledException)
             {
-                // PDF has owner/permissions restrictions but no open password —
-                // open read-only so the user can still view and print it.
-                try
-                {
-                    if (_doc is not null) { _doc.Close(); _doc = null; }
-                    _doc = PdfReader.Open(path, PdfDocumentOpenMode.ReadOnly);
-                    _currentFile = path;
-                    FinishOpenFile(path, path);
-                    SetStatus($"Opened {System.IO.Path.GetFileName(path)} (read-only - owner restrictions) - {_doc.PageCount} page(s)");
-                }
-                catch (Exception ex2)
-                {
-                    KillerDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
+                SetStatus("Open canceled");
             }
             catch (Exception ex) when (IsPasswordException(ex))
             {
+                SetFileOperationBusy(false);
                 string? pw = PromptForPassword(path);
-                if (pw is null) return;
+                if (pw is null)
+                {
+                    SetStatus("Open canceled");
+                    return;
+                }
                 try
                 {
-                    if (_doc is not null) { _doc.Close(); _doc = null; }
-                    _doc = PdfReader.Open(path, pw, PdfDocumentOpenMode.Modify);
-                    // Save a decrypted temp copy so Docnet can render without needing the password
-                    var tempDec = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_dec_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(tempDec);
-                    _doc.Close();
-                    _doc = PdfReader.Open(tempDec, PdfDocumentOpenMode.Modify);
-                    _currentFile = tempDec;
-                    FinishOpenFile(path, tempDec);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        SetStatus("Open canceled");
+                        return;
+                    }
+                    SetFileOperationBusy(true, $"Opening {System.IO.Path.GetFileName(path)}...");
+                    _openCancellationTokenSource?.Dispose();
+                    _openCancellationTokenSource = new CancellationTokenSource();
+                    var retryCancellationToken = _openCancellationTokenSource.Token;
+                    var result = await OpenFileCoreAsync(path, pw, retryCancellationToken);
+                    await FinishOpenFileAsync(result, retryCancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    SetStatus("Open canceled");
                 }
                 catch (Exception ex2)
                 {
+                    SetFileOperationBusy(false);
                     KillerDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             catch (Exception ex)
             {
+                SetFileOperationBusy(false);
                 KillerDialog.Show(this, $"Failed to open PDF:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetFileOperationBusy(false);
             }
         }
 
-        private static bool IsOwnerPasswordException(Exception ex) =>
-            ex.Message.IndexOf("owner", StringComparison.OrdinalIgnoreCase) >= 0 &&
-            ex.Message.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0;
-
-        private void FinishOpenFile(string displayPath, string workingPath)
+        private async Task<PdfOpenResult> OpenFileCoreAsync(string path, string? password, CancellationToken cancellationToken)
         {
-            _currentFile = workingPath;
-            FileNameLabel.Text = System.IO.Path.GetFileName(displayPath);
-            _annotations.Clear();
-            _renderDims.Clear();
-            _allSearchRects.Clear();
-            _searchResultPages.Clear();
-            _searchPageCursor = -1;
-            ClearSelection();
-            RefreshPageList();
-            DropZone.Visibility = Visibility.Collapsed;
-            PagePreviewPanel.Visibility = Visibility.Visible;
-            if (_closeFileBtnRef != null) _closeFileBtnRef.IsEnabled = true;
-            MarkDirty(false);
-            if (_doc!.PageCount > 0) PageList.SelectedIndex = 0;
-            SetStatus($"Opened {System.IO.Path.GetFileName(displayPath)} - {_doc.PageCount} page(s)");
+            var result = await _pdfDocumentService.OpenAsync(path, password, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return result;
+        }
+
+        private async Task FinishOpenFileAsync(PdfOpenResult result, CancellationToken cancellationToken)
+        {
+            bool assignedDocument = false;
+            try
+            {
+                int pageCount = result.Document.PageCount;
+                var thumbnails = await _pdfDocumentService.RenderThumbnailsAsync(result.WorkingPath, pageCount, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (_doc is not null) { _doc.Close(); _doc = null; }
+                _doc = result.Document;
+                assignedDocument = true;
+                _currentFile = result.WorkingPath;
+                FileNameLabel.Text = System.IO.Path.GetFileName(result.DisplayPath);
+                _annotations.Clear();
+                _renderDims.Clear();
+                _allSearchRects.Clear();
+                _searchResultPages.Clear();
+                _searchPageCursor = -1;
+                ClearSelection();
+                RefreshPageList(thumbnails);
+                DropZone.Visibility = Visibility.Collapsed;
+                PagePreviewPanel.Visibility = Visibility.Visible;
+                if (_closeFileBtnRef != null) _closeFileBtnRef.IsEnabled = true;
+                MarkDirty(false);
+                if (_doc.PageCount > 0) PageList.SelectedIndex = 0;
+                var readOnlySuffix = result.OpenedReadOnly ? " (read-only - owner restrictions)" : string.Empty;
+                SetStatus($"Opened {System.IO.Path.GetFileName(result.DisplayPath)}{readOnlySuffix} - {_doc.PageCount} page(s)");
+            }
+            catch
+            {
+                if (!assignedDocument) result.Document.Close();
+                throw;
+            }
         }
 
         private static bool IsPasswordException(Exception ex) =>
@@ -395,126 +433,127 @@ namespace KillerPDF
             return win.ShowDialog() == true ? result : null;
         }
 
-        private void RefreshPageList()
+        private void RefreshPageList(IReadOnlyList<BitmapSource?>? thumbnails = null)
         {
             PageList.Items.Clear();
-            if (_doc is null || _currentFile is null) return;
+            if (_doc is null) return;
 
-            try
+            for (int i = 0; i < _doc.PageCount; i++)
             {
-                using var docReader = DocLib.Instance.GetDocReader(_currentFile, new PageDimensions(256, 256));
-                for (int i = 0; i < _doc.PageCount; i++)
+                BitmapSource? thumb = thumbnails is not null && i < thumbnails.Count ? thumbnails[i] : null;
+                var img = new Image
                 {
-                    BitmapSource? thumb = null;
-                    try
-                    {
-                        using var pr = docReader.GetPageReader(i);
-                        int tw = pr.GetPageWidth();
-                        int th = pr.GetPageHeight();
-                        var raw = pr.GetImage();
-                        if (tw > 0 && th > 0 && raw != null && raw.Length > 0)
-                        {
-                            var wb = new WriteableBitmap(tw, th, 96, 96, PixelFormats.Bgra32, null);
-                            wb.WritePixels(new Int32Rect(0, 0, tw, th), raw, tw * 4, 0);
-                            wb.Freeze();
-                            thumb = wb;
-                        }
-                    }
-                    catch { /* thumbnail failed, show text fallback */ }
+                    Source = thumb,
+                    Width = 140,
+                    Height = thumb is not null ? 140.0 * thumb.PixelHeight / thumb.PixelWidth : 100,
+                    Stretch = Stretch.Uniform,
+                    Margin = new Thickness(0, 0, 0, 2)
+                };
 
-                    var img = new Image
+                var label = new TextBlock
+                {
+                    Text = $"Page {i + 1}",
+                    Foreground = (SolidColorBrush)FindResource("TextSecondary"),
+                    FontFamily = new FontFamily("Segoe UI"),
+                    FontSize = 10,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+
+                var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+                if (thumb is not null)
+                {
+                    var border = new Border
                     {
-                        Source = thumb,
-                        Width = 140,
-                        Height = thumb is not null ? 140.0 * thumb.PixelHeight / thumb.PixelWidth : 100,
-                        Stretch = Stretch.Uniform,
-                        Margin = new Thickness(0, 0, 0, 2)
+                        Background = Brushes.White,
+                        BorderBrush = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
+                        BorderThickness = new Thickness(1),
+                        Child = img
                     };
-
-                    var label = new TextBlock
+                    panel.Children.Add(border);
+                }
+                else
+                {
+                    panel.Children.Add(new TextBlock
                     {
                         Text = $"Page {i + 1}",
-                        Foreground = (SolidColorBrush)FindResource("TextSecondary"),
-                        FontFamily = new FontFamily("Segoe UI"),
-                        FontSize = 10,
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    };
-
-                    var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
-                    if (thumb is not null)
-                    {
-                        var border = new Border
-                        {
-                            Background = Brushes.White,
-                            BorderBrush = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
-                            BorderThickness = new Thickness(1),
-                            Child = img
-                        };
-                        panel.Children.Add(border);
-                    }
-                    else
-                    {
-                        panel.Children.Add(new TextBlock
-                        {
-                            Text = $"Page {i + 1}",
-                            Foreground = (SolidColorBrush)FindResource("TextPrimary"),
-                            FontFamily = new FontFamily("Consolas"),
-                            FontSize = 13,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            Margin = new Thickness(0, 20, 0, 20)
-                        });
-                    }
-                    panel.Children.Add(label);
-                    PageList.Items.Add(panel);
+                        Foreground = (SolidColorBrush)FindResource("TextPrimary"),
+                        FontFamily = new FontFamily("Consolas"),
+                        FontSize = 13,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Margin = new Thickness(0, 20, 0, 20)
+                    });
                 }
-            }
-            catch
-            {
-                // Fallback to plain text list
-                for (int i = 0; i < _doc.PageCount; i++)
-                    PageList.Items.Add($"Page {i + 1}");
+                panel.Children.Add(label);
+                PageList.Items.Add(panel);
             }
         }
 
-        private void RenderPage(int pageIndex)
+        private async void RenderPage(int pageIndex)
         {
             if (_currentFile is null || _doc is null) return;
+            var currentFile = _currentFile;
+            _renderCancellationTokenSource?.Cancel();
+            _renderCancellationTokenSource?.Dispose();
+            _renderCancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _renderCancellationTokenSource.Token;
             try
             {
-                using var docReader = DocLib.Instance.GetDocReader(_currentFile, new PageDimensions(1536, 1536));
-                using var pageReader = docReader.GetPageReader(pageIndex);
+                SetBusy(true, $"Rendering page {pageIndex + 1}...");
+                var result = await _pdfDocumentService.RenderPageAsync(currentFile, pageIndex, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
 
-                int width = pageReader.GetPageWidth();
-                int height = pageReader.GetPageHeight();
-                var rawBytes = pageReader.GetImage();
-
-                if (width <= 0 || height <= 0 || rawBytes == null || rawBytes.Length == 0)
+                if (result.Bitmap is null || result.Width <= 0 || result.Height <= 0)
                 {
                     PageImage.Source = null;
                     SetStatus($"Page {pageIndex + 1} - could not render");
                     return;
                 }
 
-                _renderDims[pageIndex] = (width, height);
+                if (_doc is null) return;
 
-                var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
-                bitmap.WritePixels(new Int32Rect(0, 0, width, height), rawBytes, width * 4, 0);
-
-                PageImage.Source = bitmap;
-                _annotationCanvas.Width = width;
-                _annotationCanvas.Height = height;
+                _renderDims[pageIndex] = (result.Width, result.Height);
+                PageImage.Source = result.Bitmap;
+                _annotationCanvas.Width = result.Width;
+                _annotationCanvas.Height = result.Height;
                 ClearSelection();
                 RenderAllAnnotations(pageIndex);
                 SetStatus($"Page {pageIndex + 1} of {_doc.PageCount}");
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {
                 PageImage.Source = null;
                 SetStatus($"Render error: {ex.Message}");
             }
+            finally
+            {
+                SetBusy(false);
+            }
         }
 
         private void SetStatus(string text) => StatusText.Text = text;
+
+        private void SetBusy(bool isBusy, string? status = null)
+        {
+            _busyDepth = isBusy ? _busyDepth + 1 : Math.Max(0, _busyDepth - 1);
+            Mouse.OverrideCursor = _busyDepth > 0 ? Cursors.Wait : null;
+            if (!string.IsNullOrEmpty(status)) SetStatus(status);
+        }
+
+        private void SetFileOperationBusy(bool isBusy, string? status = null)
+        {
+            if (_isFileOperationBusy == isBusy)
+            {
+                if (!string.IsNullOrEmpty(status)) SetStatus(status);
+                return;
+            }
+
+            _isFileOperationBusy = isBusy;
+            IsEnabled = !isBusy;
+            SetBusy(isBusy, status);
+        }
 
         // ============================================================
         // Tool selection
@@ -2705,6 +2744,12 @@ namespace KillerPDF
 
         private void CloseFile()
         {
+            _openCancellationTokenSource?.Cancel();
+            _renderCancellationTokenSource?.Cancel();
+            _openCancellationTokenSource?.Dispose();
+            _renderCancellationTokenSource?.Dispose();
+            _openCancellationTokenSource = null;
+            _renderCancellationTokenSource = null;
             if (_doc is null) return;
             if (_isDirty)
             {
@@ -2742,10 +2787,10 @@ namespace KillerPDF
         // File toolbar handlers
         // ============================================================
 
-        private void Open_Click(object sender, RoutedEventArgs e)
+        private async void Open_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new OpenFileDialog { Filter = "PDF files|*.pdf", Title = "Open PDF" };
-            if (dlg.ShowDialog() == true) OpenFile(dlg.FileName);
+            if (dlg.ShowDialog() == true) await OpenFileAsync(dlg.FileName);
         }
 
         private void Merge_Click(object sender, RoutedEventArgs e)
@@ -2844,7 +2889,7 @@ namespace KillerPDF
             PageList.SelectedIndex = idx + 1;
         }
 
-        private void SaveAs_Click(object sender, RoutedEventArgs e)
+        private async void SaveAs_Click(object sender, RoutedEventArgs e)
         {
             if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
@@ -2852,119 +2897,122 @@ namespace KillerPDF
             if (dlg.ShowDialog() != true) return;
             try
             {
+                SetFileOperationBusy(true, "Saving...");
+                var doc = _doc;
                 bool hasAnnotations = _annotations.Values.Any(list => list.Count > 0);
+                string targetFile = dlg.FileName;
+                string status;
 
                 if (hasAnnotations)
                 {
                     var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                         $"killerpdf_clean_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(tempClean);
+                    await _pdfDocumentService.SaveAsync(() => doc.Save(tempClean), CancellationToken.None);
                     DrawAnnotationsOnDocument();
-                    _doc.Save(dlg.FileName);
-                    _doc.Close();
-                    _doc = PdfReader.Open(tempClean, PdfDocumentOpenMode.Modify);
-                    _currentFile = tempClean;
-                    MarkDirty(false);
-                    SetStatus($"Saved with annotations to {System.IO.Path.GetFileName(dlg.FileName)}");
+                    ExceptionDispatchInfo? saveError = null;
+                    try
+                    {
+                        await _pdfDocumentService.SaveAsync(() => doc.Save(targetFile), CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        saveError = ExceptionDispatchInfo.Capture(ex);
+                    }
+
+                    doc = await RestoreDocumentAsync(doc, tempClean, CancellationToken.None);
+                    saveError?.Throw();
+                    status = $"Saved with annotations to {System.IO.Path.GetFileName(targetFile)}";
                 }
                 else
                 {
-                    _doc.Save(dlg.FileName);
-                    MarkDirty(false);
-                    SetStatus($"Saved to {System.IO.Path.GetFileName(dlg.FileName)}");
+                    await _pdfDocumentService.SaveAsync(() => doc.Save(targetFile), CancellationToken.None);
+                    status = $"Saved to {System.IO.Path.GetFileName(targetFile)}";
                 }
+
+                MarkDirty(false);
+                SetStatus(status);
             }
             catch (Exception ex)
             {
+                SetFileOperationBusy(false);
                 KillerDialog.Show(this, $"Save failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetFileOperationBusy(false);
             }
         }
 
-        private void SaveFlattened_Click(object sender, RoutedEventArgs e)
+        private async void SaveFlattened_Click(object sender, RoutedEventArgs e)
         {
             if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
             var dlg = new SaveFileDialog { Filter = "PDF files|*.pdf", Title = "Save Flattened PDF" };
             if (dlg.ShowDialog() != true) return;
-            SetStatus("Flattening...");
+            SetFileOperationBusy(true, "Flattening...");
             try
             {
-                // Burn any pending annotations into a temp source for rasterization
+                var doc = _doc;
+                var pageSizes = GetPageSizes(doc);
                 string sourcePath;
                 bool hasAnnotations = _annotations.Values.Any(list => list.Count > 0);
                 if (hasAnnotations)
                 {
                     var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_clean_{Guid.NewGuid():N}.pdf");
                     var tempBurned = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_burned_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(tempClean);
+                    await _pdfDocumentService.SaveAsync(() => doc.Save(tempClean), CancellationToken.None);
                     DrawAnnotationsOnDocument();
-                    _doc.Save(tempBurned);
-                    _doc.Close();
-                    _doc = PdfReader.Open(tempClean, PdfDocumentOpenMode.Modify);
-                    _currentFile = tempClean;
+                    ExceptionDispatchInfo? saveError = null;
+                    try
+                    {
+                        await _pdfDocumentService.SaveAsync(() => doc.Save(tempBurned), CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        saveError = ExceptionDispatchInfo.Capture(ex);
+                    }
+
+                    doc = await RestoreDocumentAsync(doc, tempClean, CancellationToken.None);
+                    saveError?.Throw();
                     sourcePath = tempBurned;
                 }
                 else
                 {
                     var temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_src_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(temp);
+                    await _pdfDocumentService.SaveAsync(() => doc.Save(temp), CancellationToken.None);
                     sourcePath = temp;
                 }
 
-                int pageCount = _doc.PageCount;
-
-                // Calculate max render dimensions across all pages at 150 DPI
-                int maxW = 1, maxH = 1;
-                for (int i = 0; i < pageCount; i++)
-                {
-                    var p = _doc.Pages[i];
-                    int pw = (int)(p.Width.Point * 150 / 72.0);
-                    int ph = (int)(p.Height.Point * 150 / 72.0);
-                    if (pw > maxW) maxW = pw;
-                    if (ph > maxH) maxH = ph;
-                }
-
-                using var outDoc = new PdfDocument();
-                using (var docReader = DocLib.Instance.GetDocReader(sourcePath, new PageDimensions(maxW, maxH)))
-                {
-                    for (int i = 0; i < pageCount; i++)
-                    {
-                        using var pr = docReader.GetPageReader(i);
-                        var bgra = pr.GetImage();
-                        int rw = pr.GetPageWidth();
-                        int rh = pr.GetPageHeight();
-
-                        // Encode rendered BGRA pixels to PNG in memory
-                        var bmp = new WriteableBitmap(rw, rh, 96, 96, PixelFormats.Bgra32, null);
-                        bmp.WritePixels(new Int32Rect(0, 0, rw, rh), bgra, rw * 4, 0);
-                        byte[] pngBytes;
-                        using (var ms = new MemoryStream())
-                        {
-                            var enc = new PngBitmapEncoder();
-                            enc.Frames.Add(BitmapFrame.Create(bmp));
-                            enc.Save(ms);
-                            pngBytes = ms.ToArray();
-                        }
-
-                        // Add page at original PDF dimensions, fill with rasterized image
-                        var origPage = _doc.Pages[i];
-                        var newPage = outDoc.AddPage();
-                        newPage.Width = origPage.Width;
-                        newPage.Height = origPage.Height;
-                        using var xi = XImage.FromStream(() => new MemoryStream(pngBytes));
-                        using var gfx = XGraphics.FromPdfPage(newPage);
-                        gfx.DrawImage(xi, 0, 0, newPage.Width.Point, newPage.Height.Point);
-                    }
-                }
-
-                outDoc.Save(dlg.FileName);
+                await _pdfDocumentService.SaveFlattenedAsync(sourcePath, dlg.FileName, pageSizes, CancellationToken.None);
                 MarkDirty(false);
                 SetStatus($"Flattened PDF saved to {System.IO.Path.GetFileName(dlg.FileName)}");
             }
             catch (Exception ex)
             {
+                SetFileOperationBusy(false);
                 KillerDialog.Show(this, $"Flatten failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+            finally
+            {
+                SetFileOperationBusy(false);
+            }
+        }
+
+        private async Task<PdfDocument> RestoreDocumentAsync(PdfDocument currentDoc, string cleanPath, CancellationToken cancellationToken)
+        {
+            var restoredDoc = await _pdfDocumentService.OpenPdfSharpAsync(cleanPath, PdfDocumentOpenMode.Modify, cancellationToken);
+            currentDoc.Close();
+            _doc = restoredDoc;
+            _currentFile = cleanPath;
+            return restoredDoc;
+        }
+
+        private static IReadOnlyList<PdfPageSize> GetPageSizes(PdfDocument doc)
+        {
+            var pageSizes = new List<PdfPageSize>(doc.PageCount);
+            for (int i = 0; i < doc.PageCount; i++)
+                pageSizes.Add(new PdfPageSize(doc.Pages[i].Width.Point, doc.Pages[i].Height.Point));
+            return pageSizes;
         }
 
         private void Print_Click(object sender, RoutedEventArgs e)
@@ -3274,13 +3322,13 @@ namespace KillerPDF
             e.Handled = true;
         }
 
-        private void DropZone_Drop(object sender, DragEventArgs e)
+        private async void DropZone_Drop(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 var files = (string[])e.Data.GetData(DataFormats.FileDrop)!;
                 if (files.Length > 0 && files[0].EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
-                    OpenFile(files[0]);
+                    await OpenFileAsync(files[0]);
             }
         }
 
