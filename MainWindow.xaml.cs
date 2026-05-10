@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -116,6 +117,41 @@ namespace KillerPDF
                 if (args.Length > 1 && System.IO.File.Exists(args[1]))
                     OpenFile(args[1]);
             };
+        }
+
+        private bool ShouldIgnoreGlobalShortcut() => _activeTextBox is not null && _activeTextBox.IsFocused;
+
+        private void OpenCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            Open_Click(sender, e);
+        }
+
+        private void SaveCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            SaveAs_Click(sender, e);
+        }
+
+        private void PrintCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            Print_Click(sender, e);
+        }
+
+        private void FindCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            ToggleSearchBar();
+        }
+
+        private void DropZone_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter || e.Key == Key.Space)
+            {
+                Open_Click(sender, e);
+                e.Handled = true;
+            }
         }
 
         // ============================================================
@@ -250,27 +286,30 @@ namespace KillerPDF
         {
             var menu = new ContextMenu();
 
-            menu.Items.Add(MakeMenuItem("Copy Text", (s, e) => CopySelectedText(), "Ctrl+C"));
-            menu.Items.Add(MakeMenuItem("Print", (s, e) => Print_Click(s!, e), "Ctrl+P"));
+            menu.Items.Add(MakeMenuItem("_Copy Text", (s, e) => CopySelectedText(), "Ctrl+C", "Copy selected text to the clipboard"));
+            menu.Items.Add(MakeMenuItem("_Print", (s, e) => Print_Click(s!, e), "Ctrl+P", "Print the current PDF"));
             menu.Items.Add(new Separator());
-            menu.Items.Add(MakeMenuItem("Select Tool", (s, e) => SetTool(EditTool.Select)));
-            menu.Items.Add(MakeMenuItem("Text Tool", (s, e) => SetTool(EditTool.Text)));
-            menu.Items.Add(MakeMenuItem("Highlight Tool", (s, e) => SetTool(EditTool.Highlight)));
-            menu.Items.Add(MakeMenuItem("Draw Tool", (s, e) => SetTool(EditTool.Draw)));
+            menu.Items.Add(MakeMenuItem("_Select Tool", (s, e) => SetTool(EditTool.Select), null, "Switch to the select tool"));
+            menu.Items.Add(MakeMenuItem("_Text Tool", (s, e) => SetTool(EditTool.Text), null, "Switch to the text tool"));
+            menu.Items.Add(MakeMenuItem("_Highlight Tool", (s, e) => SetTool(EditTool.Highlight), null, "Switch to the highlight tool"));
+            menu.Items.Add(MakeMenuItem("_Draw Tool", (s, e) => SetTool(EditTool.Draw), null, "Switch to the draw tool"));
             menu.Items.Add(new Separator());
-            menu.Items.Add(MakeMenuItem("Delete Selected", (s, e) => DeleteSelected(), "Delete"));
-            menu.Items.Add(MakeMenuItem("Undo Last", (s, e) => Undo_Click(s!, e), "Ctrl+Z"));
-            menu.Items.Add(MakeMenuItem("Clear Page Annotations", (s, e) => ClearAnnotations_Click(s!, e)));
+            menu.Items.Add(MakeMenuItem("De_lete Selected", (s, e) => DeleteSelected(), "Delete", "Delete the selected annotation"));
+            menu.Items.Add(MakeMenuItem("_Undo Last", (s, e) => Undo_Click(s!, e), "Ctrl+Z", "Undo the last annotation change"));
+            menu.Items.Add(MakeMenuItem("Cle_ar Page Annotations", (s, e) => ClearAnnotations_Click(s!, e), null, "Clear all annotations on this page"));
 
             _annotationCanvas.ContextMenu = menu;
         }
 
-        private static MenuItem MakeMenuItem(string header, RoutedEventHandler click, string? gesture = null)
+        private static MenuItem MakeMenuItem(string header, RoutedEventHandler click, string? gesture = null, string? helpText = null)
         {
             var item = new MenuItem { Header = header };
             item.Click += click;
             if (gesture != null)
                 item.InputGestureText = gesture;
+            var automationName = header.Replace("_", string.Empty);
+            AutomationProperties.SetName(item, automationName);
+            AutomationProperties.SetHelpText(item, helpText ?? automationName);
             return item;
         }
 
@@ -1818,6 +1857,8 @@ namespace KillerPDF
                     Padding = new Thickness(6, 2, 6, 2),
                     VerticalContentAlignment = VerticalAlignment.Center
                 };
+                AutomationProperties.SetName(_searchBox, "Search text");
+                AutomationProperties.SetHelpText(_searchBox, "Enter text to find in the current PDF. Press Enter for next result and Shift Enter for previous result.");
                 _searchBox.KeyDown += SearchBox_KeyDown;
                 _searchBox.TextChanged += SearchBox_TextChanged;
 
@@ -1829,6 +1870,9 @@ namespace KillerPDF
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(8, 0, 0, 0)
                 };
+                AutomationProperties.SetName(_searchStatus, "Search status");
+                AutomationProperties.SetHelpText(_searchStatus, "Search result status");
+                AutomationProperties.SetLiveSetting(_searchStatus, AutomationLiveSetting.Polite);
 
                 var closeBtn = new Button
                 {
@@ -1837,6 +1881,8 @@ namespace KillerPDF
                     Style = (Style)FindResource("ToolbarButton"),
                     ToolTip = "Close search (Esc)"
                 };
+                AutomationProperties.SetName(closeBtn, "Close search");
+                AutomationProperties.SetHelpText(closeBtn, "Close the search bar. Shortcut Escape.");
                 closeBtn.Click += (s, e) => CloseSearchBar();
 
                 var searchIcon = new TextBlock
@@ -2382,6 +2428,8 @@ namespace KillerPDF
                 AcceptsReturn = true,
                 Tag = pageIdx
             };
+            AutomationProperties.SetName(tb, "Annotation text");
+            AutomationProperties.SetHelpText(tb, "Type annotation text. Press Enter to save or Escape to cancel.");
             Canvas.SetLeft(tb, pos.X);
             Canvas.SetTop(tb, pos.Y);
             _annotationCanvas.Children.Add(tb);
@@ -2468,6 +2516,34 @@ namespace KillerPDF
             // Don't intercept keys when typing in a TextBox
             if (_activeTextBox is not null && _activeTextBox.IsFocused) return;
 
+            if (Keyboard.Modifiers == ModifierKeys.Alt)
+            {
+                var accessKey = e.SystemKey != Key.None ? e.SystemKey : e.Key;
+                switch (accessKey)
+                {
+                    case Key.O: Open_Click(this, e); break;
+                    case Key.W: CloseFile(); break;
+                    case Key.M: Merge_Click(this, e); break;
+                    case Key.E: Split_Click(this, e); break;
+                    case Key.D: Delete_Click(this, e); break;
+                    case Key.U: MoveUp_Click(this, e); break;
+                    case Key.N: MoveDown_Click(this, e); break;
+                    case Key.S: SaveAs_Click(this, e); break;
+                    case Key.F: SaveFlattened_Click(this, e); break;
+                    case Key.P: Print_Click(this, e); break;
+                    case Key.Q: SetTool(EditTool.Select); break;
+                    case Key.T: SetTool(EditTool.Text); break;
+                    case Key.H: SetTool(EditTool.Highlight); break;
+                    case Key.R: SetTool(EditTool.Draw); break;
+                    case Key.G: ToolSignature_Click(this, e); break;
+                    case Key.Z: Undo_Click(this, e); break;
+                    case Key.L: ClearAnnotations_Click(this, e); break;
+                    default: return;
+                }
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control)
             {
                 CopySelectedText();
@@ -2478,19 +2554,9 @@ namespace KillerPDF
                 SelectAllText();
                 e.Handled = true;
             }
-            else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                ToggleSearchBar();
-                e.Handled = true;
-            }
             else if (e.Key == Key.Escape && _searchBar is not null && _searchBar.Visibility == Visibility.Visible)
             {
                 CloseSearchBar();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.P && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                Print_Click(this, e);
                 e.Handled = true;
             }
             else if (e.Key == Key.Delete && _selectedAnnotation is not null)
@@ -2506,11 +2572,6 @@ namespace KillerPDF
             else if (e.Key == Key.W && Keyboard.Modifiers == ModifierKeys.Control)
             {
                 CloseFile();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                Open_Click(this, e);
                 e.Handled = true;
             }
         }
