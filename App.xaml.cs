@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
+using KillerPDF.Services;
 
 namespace KillerPDF
 {
@@ -46,6 +47,7 @@ namespace KillerPDF
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            ThemeManager.Initialize(ParseThemeSetting(Properties.Settings.Default.Theme));
 
             // Prevent WPF from auto-shutting down when the launcher dialog closes
             // (OnLastWindowClose fires between dialog close and MainWindow.Show).
@@ -110,6 +112,19 @@ namespace KillerPDF
             // Hand shutdown responsibility back to the normal window-close behaviour
             ShutdownMode = ShutdownMode.OnLastWindowClose;
             new MainWindow().Show();
+        }
+
+
+        private static Theme ParseThemeSetting(string? value)
+        {
+            return Enum.TryParse(value, ignoreCase: true, out Theme theme) ? theme : Theme.System;
+        }
+
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            ThemeManager.Cleanup();
+            base.OnExit(e);
         }
 
         // ============================================================

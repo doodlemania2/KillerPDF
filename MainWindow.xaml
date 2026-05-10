@@ -6,27 +6,16 @@
         mc:Ignorable="d"
         Title="KillerPDF" Height="700" Width="1000"
         WindowStartupLocation="CenterScreen"
-        WindowStyle="None"
-        AllowsTransparency="True"
         ResizeMode="CanResizeWithGrip"
-        Background="#1a1a1a">
+        Background="{DynamicResource BgDark}">
 
     <Window.Resources>
-        <!-- Killer Tools dark/green theme -->
-        <SolidColorBrush x:Key="BgDark" Color="#1a1a1a"/>
-        <SolidColorBrush x:Key="BgPanel" Color="#242424"/>
-        <SolidColorBrush x:Key="BgHover" Color="#2e2e2e"/>
-        <SolidColorBrush x:Key="BorderDim" Color="#333333"/>
-        <SolidColorBrush x:Key="AccentGreen" Color="#4ade80"/>
-        <SolidColorBrush x:Key="AccentGreenDim" Color="#22543d"/>
-        <SolidColorBrush x:Key="TextPrimary" Color="#e0e0e0"/>
-        <SolidColorBrush x:Key="TextSecondary" Color="#888888"/>
-        <SolidColorBrush x:Key="DangerRed" Color="#ef4444"/>
+        <!-- Theme brushes are supplied by Services.ThemeManager from Themes/*.xaml. -->
 
         <!-- Toolbar button -->
         <Style x:Key="ToolbarButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="10,6"/>
             <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
@@ -47,7 +36,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4"/>
@@ -58,15 +47,15 @@
             </Setter>
         </Style>
         <Style x:Key="ToolbarButtonAccent" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
-            <Setter Property="Foreground" Value="{StaticResource AccentGreen}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentGreen}"/>
         </Style>
         <Style x:Key="ToolbarButtonDanger" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
-            <Setter Property="Foreground" Value="{StaticResource DangerRed}"/>
+            <Setter Property="Foreground" Value="{DynamicResource DangerRed}"/>
         </Style>
 
         <Style x:Key="ChromeButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Width" Value="46"/>
             <Setter Property="Height" Value="36"/>
@@ -80,7 +69,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -88,7 +77,7 @@
             </Setter>
         </Style>
         <Style x:Key="ChromeCloseButton" TargetType="Button" BasedOn="{StaticResource ChromeButton}">
-            <Setter Property="Foreground" Value="{StaticResource DangerRed}"/>
+            <Setter Property="Foreground" Value="{DynamicResource DangerRed}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -97,7 +86,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource DangerRed}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource DangerRed}"/>
                                 <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -124,12 +113,12 @@
                                                     <Setter.Value>
                                                         <ControlTemplate TargetType="Thumb">
                                                             <Border x:Name="thumbBorder"
-                                                                    Background="#554ade80"
+                                                                    Background="{DynamicResource AccentGreenDim}"
                                                                     CornerRadius="3"
                                                                     Margin="1,0"/>
                                                             <ControlTemplate.Triggers>
                                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                                    <Setter TargetName="thumbBorder" Property="Background" Value="{StaticResource AccentGreen}"/>
+                                                                    <Setter TargetName="thumbBorder" Property="Background" Value="{DynamicResource AccentGreen}"/>
                                                                 </Trigger>
                                                             </ControlTemplate.Triggers>
                                                         </ControlTemplate>
@@ -155,10 +144,10 @@
 
         <!-- Dark context menu -->
         <Style TargetType="ContextMenu">
-            <Setter Property="Background" Value="{StaticResource BgPanel}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderDim}"/>
+            <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDim}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="HasDropShadow" Value="True"/>
@@ -177,7 +166,7 @@
         </Style>
         <Style TargetType="MenuItem">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="Padding" Value="20,6,40,6"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="FontSize" Value="12"/>
@@ -193,13 +182,13 @@
                                 </Grid.ColumnDefinitions>
                                 <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="1" Text="{TemplateBinding InputGestureText}"
-                                           Foreground="{StaticResource TextSecondary}" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondary}" FontSize="11"
                                            VerticalAlignment="Center" Margin="24,0,0,0"/>
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="MenuBd" Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter TargetName="MenuBd" Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -207,7 +196,7 @@
             </Setter>
         </Style>
         <Style TargetType="Separator">
-            <Setter Property="Background" Value="{StaticResource BorderDim}"/>
+            <Setter Property="Background" Value="{DynamicResource BorderDim}"/>
             <Setter Property="Height" Value="1"/>
             <Setter Property="Margin" Value="4,4"/>
         </Style>
@@ -236,7 +225,7 @@
         <Style x:Key="DarkComboItem" TargetType="ComboBoxItem">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="Padding" Value="8,5"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="11"/>
@@ -251,12 +240,12 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="ItemBd" Property="Background" Value="{StaticResource AccentGreenDim}"/>
-                                <Setter Property="Foreground" Value="{StaticResource AccentGreen}"/>
+                                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource AccentGreenDim}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentGreen}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="ItemBd" Property="Background" Value="{StaticResource AccentGreenDim}"/>
-                                <Setter Property="Foreground" Value="{StaticResource AccentGreen}"/>
+                                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource AccentGreenDim}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentGreen}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -267,9 +256,9 @@
         <!-- The ComboBox itself -->
         <Style x:Key="DarkComboBox" TargetType="ComboBox">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
-            <Setter Property="Background" Value="{StaticResource BgPanel}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderDim}"/>
+            <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDim}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="11"/>
@@ -305,7 +294,7 @@
                                              Margin="5,0,0,0"
                                              Background="Transparent"
                                              BorderThickness="0"
-                                             Foreground="{StaticResource TextPrimary}"
+                                             Foreground="{DynamicResource TextPrimary}"
                                              FontFamily="Consolas"
                                              FontSize="11"
                                              VerticalAlignment="Center"
@@ -317,7 +306,7 @@
                                                Text="&#xE70D;"
                                                FontFamily="Segoe MDL2 Assets"
                                                FontSize="8"
-                                               Foreground="{StaticResource TextSecondary}"
+                                               Foreground="{DynamicResource TextSecondary}"
                                                VerticalAlignment="Center"
                                                HorizontalAlignment="Center"
                                                IsHitTestVisible="False"/>
@@ -335,8 +324,8 @@
                                    Focusable="False"
                                    PopupAnimation="Fade"
                                    Placement="Bottom">
-                                <Border Background="{StaticResource BgPanel}"
-                                        BorderBrush="{StaticResource AccentGreenDim}"
+                                <Border Background="{DynamicResource BgPanel}"
+                                        BorderBrush="{DynamicResource AccentGreenDim}"
                                         BorderThickness="1"
                                         CornerRadius="3"
                                         Padding="2"
@@ -356,11 +345,11 @@
                                 <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentGreen}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentGreen}"/>
                             </Trigger>
                             <Trigger Property="IsDropDownOpen" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentGreen}"/>
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentGreen}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
@@ -373,15 +362,15 @@
 
         <!-- Page list styles -->
         <Style x:Key="PageListBox" TargetType="ListBox">
-            <Setter Property="Background" Value="{StaticResource BgPanel}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderDim}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDim}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
         <Style TargetType="ListBoxItem">
             <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Template">
@@ -396,11 +385,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentGreenDim}"/>
-                                <Setter Property="Foreground" Value="{StaticResource AccentGreen}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentGreenDim}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentGreen}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -410,9 +399,9 @@
 
         <!-- General-purpose dark text button (use on non-icon buttons to bypass WPF default blue hover) -->
         <Style x:Key="DarkButton" TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource BgPanel}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderDim}"/>
+            <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDim}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,6"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -443,21 +432,21 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="36"/>
+            <RowDefinition x:Name="TitleBarRow" Height="36"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="28"/>
         </Grid.RowDefinitions>
 
         <!-- Title bar -->
-        <Border Grid.Row="0" Background="#111111" BorderBrush="{StaticResource BorderDim}" BorderThickness="0,0,0,1"
+        <Border x:Name="CustomTitleBar" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,0,0,1"
                 MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
             <Grid>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                    <TextBlock Text="Killer" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16" Foreground="{StaticResource TextPrimary}"/>
-                    <TextBlock Text="PDF" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16" Foreground="{StaticResource AccentGreen}"/>
+                    <TextBlock Text="Killer" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+                    <TextBlock Text="PDF" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16" Foreground="{DynamicResource AccentGreen}"/>
                     <TextBlock Text="" x:Name="FileNameLabel" VerticalAlignment="Center" Margin="16,0,0,0"
-                               Foreground="{StaticResource TextSecondary}" FontFamily="Consolas" FontSize="11"/>
+                               Foreground="{DynamicResource TextSecondary}" FontFamily="Consolas" FontSize="11"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button Content="&#x2015;" Click="MinimizeBtn_Click" Style="{StaticResource ChromeButton}"/>
@@ -468,24 +457,25 @@
         </Border>
 
         <!-- Toolbar -->
-        <Border Grid.Row="1" Background="#111111" BorderBrush="{StaticResource BorderDim}" BorderThickness="0,0,0,1" Padding="4,2">
+        <Border Grid.Row="1" Background="{DynamicResource PanelBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,0,0,1" Padding="4,2">
             <Grid>
                 <!-- File operations -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                     <Button Content="&#xE8DA;" Style="{StaticResource ToolbarButton}" Click="Open_Click" ToolTip="Open (Ctrl+O)"/>
                     <Button x:Name="CloseFileBtn" Content="&#xE711;" Style="{StaticResource ToolbarButton}" Click="CloseFile_Click" ToolTip="Close File (Ctrl+W)" IsEnabled="False"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
                     <Button Content="&#xE710;" Style="{StaticResource ToolbarButton}" Click="Merge_Click" ToolTip="Merge PDFs (combine additional PDFs into this one)"/>
                     <Button Content="&#xE8B1;" Style="{StaticResource ToolbarButton}" Click="Split_Click" ToolTip="Extract Pages (save selected pages to a new PDF)"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
                     <Button Content="&#xE8C6;" Style="{StaticResource ToolbarButton}" Click="Delete_Click" ToolTip="Delete Selected Pages"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
                     <Button Content="&#xE74A;" Style="{StaticResource ToolbarButton}" Click="MoveUp_Click" ToolTip="Move Page Up (reorder)"/>
                     <Button Content="&#xE74B;" Style="{StaticResource ToolbarButton}" Click="MoveDown_Click" ToolTip="Move Page Down (reorder)"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
                     <Button x:Name="SaveAsBtn" Content="&#xE74E;" Style="{StaticResource ToolbarButtonAccent}" Click="SaveAs_Click" ToolTip="Save As"/>
                     <Button Content="&#xE8B9;" Style="{StaticResource ToolbarButton}" Click="SaveFlattened_Click" ToolTip="Save Flattened PDF (rasterize all pages — fully uneditable)"/>
                     <Button Content="&#xE749;" Style="{StaticResource ToolbarButton}" Click="Print_Click" ToolTip="Print (Ctrl+P)"/>
+                    <Button Content="&#xE713;" Style="{StaticResource ToolbarButton}" Click="Settings_Click" ToolTip="Settings"/>
                 </StackPanel>
                 <!-- Edit tools + zoom -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -493,12 +483,12 @@
                     <Button x:Name="ToolTextBtn" Content="&#xE8D2;" Style="{StaticResource ToolbarButton}" Click="ToolText_Click" ToolTip="Text Tool - click to add text"/>
                     <Button x:Name="ToolHighlightBtn" Content="&#xED56;" Style="{StaticResource ToolbarButton}" Click="ToolHighlight_Click" ToolTip="Highlight Tool - drag to highlight"/>
                     <Button x:Name="ToolDrawBtn" Content="&#xED63;" Style="{StaticResource ToolbarButton}" Click="ToolDraw_Click" ToolTip="Draw Tool - freehand ink"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
                     <Button x:Name="ToolSignatureBtn" Content="&#xEE56;" Style="{StaticResource ToolbarButton}" Click="ToolSignature_Click" ToolTip="Signature - create and place signatures"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
                     <Button Content="&#xE7A7;" Style="{StaticResource ToolbarButton}" Click="Undo_Click" ToolTip="Undo Last (Ctrl+Z)"/>
                     <Button Content="&#xED62;" Style="{StaticResource ToolbarButtonDanger}" Click="ClearAnnotations_Click" ToolTip="Clear All Annotations"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
                     <ComboBox x:Name="ZoomBox" Width="96" Height="24" VerticalAlignment="Center"
                               Margin="0,0,4,0"
                               IsEditable="True" IsReadOnly="True"
@@ -525,9 +515,9 @@
             </Grid.ColumnDefinitions>
 
             <!-- Sidebar -->
-            <Border Grid.Column="0" Background="#1e1e1e" BorderBrush="{StaticResource BorderDim}" BorderThickness="0,0,1,0">
+            <Border Grid.Column="0" Background="{DynamicResource SidebarBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,0,1,0">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="PAGES" Foreground="{StaticResource TextSecondary}"
+                    <TextBlock DockPanel.Dock="Top" Text="PAGES" Foreground="{DynamicResource TextSecondary}"
                                FontFamily="Segoe UI" FontSize="11" FontWeight="SemiBold" Padding="12,10"/>
                     <ListBox x:Name="PageList" Style="{StaticResource PageListBox}"
                              BorderThickness="0" SelectionMode="Extended"
@@ -539,21 +529,21 @@
             </Border>
 
             <!-- Preview area -->
-            <Border Grid.Column="1" Background="{StaticResource BgDark}">
+            <Border Grid.Column="1" Background="{DynamicResource BgDark}">
                 <Grid>
                     <!-- Drop zone -->
                     <Border x:Name="DropZone" Background="Transparent"
                             AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver"
                             MouseLeftButtonDown="DropZone_Click">
-                        <Border BorderBrush="{StaticResource BorderDim}" BorderThickness="2"
+                        <Border BorderBrush="{DynamicResource BorderDim}" BorderThickness="2"
                                 CornerRadius="8" Margin="40" Padding="40"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Background="Transparent" Style="{x:Null}">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="Drop PDF here" FontFamily="Segoe UI" FontSize="20"
-                                           Foreground="{StaticResource TextSecondary}" HorizontalAlignment="Center"/>
+                                           Foreground="{DynamicResource TextSecondary}" HorizontalAlignment="Center"/>
                                 <TextBlock Text="or click to browse" FontFamily="Segoe UI" FontSize="13"
-                                           Foreground="{StaticResource BorderDim}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                                           Foreground="{DynamicResource BorderDim}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
                             </StackPanel>
                         </Border>
                     </Border>
@@ -587,21 +577,21 @@
         </Grid>
 
         <!-- Status bar -->
-        <Border Grid.Row="3" Background="#111111" BorderBrush="{StaticResource BorderDim}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="3" Background="{DynamicResource StatusBarBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,1,0,0">
             <Grid Margin="16,0">
                 <TextBlock x:Name="StatusText" Text="Ready"
-                           Foreground="{StaticResource TextSecondary}"
+                           Foreground="{DynamicResource TextSecondary}"
                            FontFamily="Segoe UI" FontSize="11" VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <TextBlock x:Name="VersionLabel" Text="v1.2.1"
-                               Foreground="#444444" FontFamily="Consolas"
+                               Foreground="{DynamicResource TextMuted}" FontFamily="Consolas"
                                FontSize="10" VerticalAlignment="Center" Margin="0,0,12,0"/>
                     <TextBlock FontSize="10" VerticalAlignment="Center"
                                FontFamily="Consolas">
-                        <Run Text="&#x00A9; 2026 " Foreground="#444444"/>
+                        <Run Text="&#x00A9; 2026 " Foreground="{DynamicResource TextMuted}"/>
                         <Hyperlink NavigateUri="https://thekiller.net"
                                    RequestNavigate="Hyperlink_RequestNavigate"
-                                   Foreground="#444444" TextDecorations="None">
+                                   Foreground="{DynamicResource TextMuted}" TextDecorations="None">
                             <Run Text="Steve the Killer"/>
                         </Hyperlink>
                     </TextBlock>

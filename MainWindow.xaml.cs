@@ -12,6 +12,7 @@ using System.Windows.Shapes;
 using Docnet.Core;
 using Docnet.Core.Models;
 using Microsoft.Win32;
+using KillerPDF.Services;
 using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
@@ -80,6 +81,11 @@ namespace KillerPDF
         private Button _saveAsBtnRef = null!;
         private Button _closeFileBtnRef = null!;
         private ComboBox _zoomBox = null!;
+        private Border _customTitleBar = null!;
+        private RowDefinition _titleBarRow = null!;
+
+        private readonly bool _useNativeWindowFrame = Properties.Settings.Default.UseNativeWindowFrame;
+        private HwndSource? _hwndSource;
 
         // Dirty / unsaved-change tracking
         private bool _isDirty = false;
@@ -91,6 +97,7 @@ namespace KillerPDF
 
         public MainWindow()
         {
+            ApplyInitialWindowChromeSettings();
             InitializeComponent();
             var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
             if (v != null) VersionLabel.Text = $"v{v.Major}.{v.Minor}.{v.Build}";
@@ -104,6 +111,10 @@ namespace KillerPDF
             _saveAsBtnRef = (Button)FindName("SaveAsBtn")!;
             _closeFileBtnRef = (Button)FindName("CloseFileBtn")!;
             _zoomBox = (ComboBox)FindName("ZoomBox")!;
+            _customTitleBar = (Border)FindName("CustomTitleBar")!;
+            _titleBarRow = (RowDefinition)FindName("TitleBarRow")!;
+            ApplyCustomChromeVisibility();
+            ThemeManager.ThemeChanged += ThemeManager_ThemeChanged;
             LoadSignatures();
             BuildContextMenu();
             SetTool(EditTool.Select);
@@ -119,26 +130,48 @@ namespace KillerPDF
         }
 
         // ============================================================
-        // Maximize-respects-taskbar fix (WindowStyle=None needs WM_GETMINMAXINFO)
+        // Window message hook composition
         // ============================================================
 
         private void MainWindow_SourceInitialized(object? sender, EventArgs e)
         {
             var hwnd = new WindowInteropHelper(this).Handle;
-            HwndSource.FromHwnd(hwnd)?.AddHook(WndProc);
+            _hwndSource = HwndSource.FromHwnd(hwnd);
+            _hwndSource?.AddHook(WndProc);
+            ApplyNativeTitleBarTheme(hwnd);
         }
 
         private const int WM_GETMINMAXINFO = 0x0024;
+        private const int WM_DPICHANGED = 0x02E0;
         private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
-            if (msg == WM_GETMINMAXINFO)
+            if (msg == WM_GETMINMAXINFO && !_useNativeWindowFrame)
             {
                 WmGetMinMaxInfo(hwnd, lParam);
                 handled = true;
             }
+            else if (msg == WM_DPICHANGED)
+            {
+                WmDpiChanged(hwnd, lParam);
+                handled = true;
+            }
             return IntPtr.Zero;
+        }
+
+        private static void WmDpiChanged(IntPtr hwnd, IntPtr lParam)
+        {
+            var suggested = Marshal.PtrToStructure<RECT>(lParam);
+            SetWindowPos(hwnd, IntPtr.Zero,
+                suggested.left, suggested.top,
+                suggested.right - suggested.left,
+                suggested.bottom - suggested.top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
         private static void WmGetMinMaxInfo(IntPtr hwnd, IntPtr lParam)
@@ -161,11 +194,51 @@ namespace KillerPDF
             }
         }
 
+        private void ApplyInitialWindowChromeSettings()
+        {
+            WindowStyle = _useNativeWindowFrame ? WindowStyle.SingleBorderWindow : WindowStyle.None;
+            AllowsTransparency = !_useNativeWindowFrame;
+        }
+
+        private void ApplyCustomChromeVisibility()
+        {
+            _customTitleBar.Visibility = _useNativeWindowFrame ? Visibility.Collapsed : Visibility.Visible;
+            _titleBarRow.Height = _useNativeWindowFrame ? new GridLength(0) : new GridLength(36);
+        }
+
+        private void ThemeManager_ThemeChanged(object? sender, EventArgs e)
+        {
+            if (_useNativeWindowFrame)
+            {
+                var hwnd = new WindowInteropHelper(this).Handle;
+                if (hwnd != IntPtr.Zero)
+                    ApplyNativeTitleBarTheme(hwnd);
+            }
+
+            SetTool(_currentTool);
+        }
+
+        private void ApplyNativeTitleBarTheme(IntPtr hwnd)
+        {
+            if (!_useNativeWindowFrame || hwnd == IntPtr.Zero)
+                return;
+
+            int useDark = ThemeManager.EffectiveTheme == Theme.Dark ? 1 : 0;
+            if (DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref useDark, sizeof(int)) != 0)
+                DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref useDark, sizeof(int));
+        }
+
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr handle, uint flags);
 
         [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -239,7 +312,126 @@ namespace KillerPDF
                     return;
                 }
             }
+            ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
+            _hwndSource?.RemoveHook(WndProc);
             base.OnClosing(e);
+        }
+
+
+        // ============================================================
+        // Settings
+        // ============================================================
+
+        private void Settings_Click(object sender, RoutedEventArgs e)
+        {
+            ShowSettingsDialog();
+        }
+
+        private void ShowSettingsDialog()
+        {
+            var win = new Window
+            {
+                Title = "Settings",
+                Width = 360,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                Background = BrushResource("BgPanel"),
+                Foreground = BrushResource("TextPrimary")
+            };
+
+            var panel = new StackPanel { Margin = new Thickness(20, 16, 20, 16) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Theme",
+                FontWeight = FontWeights.SemiBold,
+                Foreground = BrushResource("TextPrimary"),
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+
+            var current = ParseThemeSetting(Properties.Settings.Default.Theme);
+            foreach (var theme in new[] { Theme.Light, Theme.Dark, Theme.System })
+            {
+                var radio = new RadioButton
+                {
+                    Content = theme == Theme.System ? "System (Default)" : theme.ToString(),
+                    Tag = theme,
+                    IsChecked = theme == current,
+                    Foreground = BrushResource("TextPrimary"),
+                    Margin = new Thickness(0, 0, 0, 6)
+                };
+                radio.Checked += (_, _) =>
+                {
+                    var selected = (Theme)radio.Tag;
+                    Properties.Settings.Default.Theme = selected.ToString();
+                    Properties.Settings.Default.Save();
+                    ThemeManager.Apply(selected);
+                    SetStatus($"Theme set to {radio.Content}");
+                };
+                panel.Children.Add(radio);
+            }
+
+            panel.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 12) });
+
+            var nativeFrame = new CheckBox
+            {
+                Content = "Use native window frame (requires restart)",
+                IsChecked = Properties.Settings.Default.UseNativeWindowFrame,
+                Foreground = BrushResource("TextPrimary"),
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            nativeFrame.Checked += NativeFrameSettingChanged;
+            nativeFrame.Unchecked += NativeFrameSettingChanged;
+            panel.Children.Add(nativeFrame);
+
+            var note = new TextBlock
+            {
+                Text = "Native frame changes are applied after restarting KillerPDF. Themes update immediately.",
+                Foreground = BrushResource("TextSecondary"),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 16)
+            };
+            panel.Children.Add(note);
+
+            var close = new Button
+            {
+                Content = "Close",
+                Style = (Style)FindResource("DarkButton"),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Padding = new Thickness(18, 6, 18, 6)
+            };
+            close.Click += (_, _) => win.Close();
+            panel.Children.Add(close);
+
+            win.Content = panel;
+            win.ShowDialog();
+        }
+
+        private void NativeFrameSettingChanged(object sender, RoutedEventArgs e)
+        {
+            if (sender is not CheckBox cb)
+                return;
+
+            bool requested = cb.IsChecked == true;
+            if (Properties.Settings.Default.UseNativeWindowFrame == requested)
+                return;
+
+            Properties.Settings.Default.UseNativeWindowFrame = requested;
+            Properties.Settings.Default.Save();
+            KillerDialog.Show(this,
+                "Restart required for the native window frame setting to take effect.",
+                "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private static Theme ParseThemeSetting(string? value)
+        {
+            return Enum.TryParse(value, ignoreCase: true, out Theme theme) ? theme : Theme.System;
+        }
+
+        private SolidColorBrush BrushResource(string key)
+        {
+            return (SolidColorBrush)FindResource(key);
         }
 
         // ============================================================
@@ -370,13 +562,13 @@ namespace KillerPDF
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22))
+                Background = BrushResource("BgPanel")
             };
             var sp = new StackPanel { Margin = new Thickness(20, 16, 20, 16) };
             sp.Children.Add(new TextBlock
             {
                 Text = $"\"{System.IO.Path.GetFileName(filename)}\" is password protected.",
-                Foreground = Brushes.White,
+                Foreground = BrushResource("TextPrimary"),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 10)
             });
@@ -446,7 +638,7 @@ namespace KillerPDF
                         var border = new Border
                         {
                             Background = Brushes.White,
-                            BorderBrush = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
+                            BorderBrush = BrushResource("BorderDim"),
                             BorderThickness = new Thickness(1),
                             Child = img
                         };
@@ -625,7 +817,7 @@ namespace KillerPDF
                     Background = new SolidColorBrush(color),
                     BorderBrush = color == activeColor
                         ? (SolidColorBrush)FindResource("AccentGreen")
-                        : new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
+                        : BrushResource("BorderDim"),
                     BorderThickness = new Thickness(color == activeColor ? 2 : 1),
                     CornerRadius = new CornerRadius(3),
                     Margin = new Thickness(1),
@@ -728,7 +920,7 @@ namespace KillerPDF
 
             _drawSettingsBar = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
+                Background = BrushResource("BgDark"),
                 BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
                 BorderThickness = new Thickness(0, 0, 0, 1),
                 HorizontalAlignment = HorizontalAlignment.Left,
@@ -819,7 +1011,7 @@ namespace KillerPDF
                     var item = new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
+                        BorderBrush = BrushResource("BorderDim"),
                         BorderThickness = new Thickness(1),
                         CornerRadius = new CornerRadius(3),
                         Margin = new Thickness(4, 2, 4, 2),
@@ -872,7 +1064,7 @@ namespace KillerPDF
                     item.MouseEnter += (s, e) =>
                         ((Border)s!).BorderBrush = (SolidColorBrush)FindResource("AccentGreen");
                     item.MouseLeave += (s, e) =>
-                        ((Border)s!).BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44));
+                        ((Border)s!).BorderBrush = BrushResource("BorderDim");
 
                     // Wrap in grid with delete button
                     var itemGrid = new Grid();
@@ -886,7 +1078,7 @@ namespace KillerPDF
                         HorizontalAlignment = HorizontalAlignment.Right,
                         VerticalAlignment = VerticalAlignment.Top,
                         Margin = new Thickness(0, 0, 2, 0),
-                        Background = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
+                        Background = BrushResource("BgHover"),
                         Foreground = (SolidColorBrush)FindResource("DangerRed"),
                         BorderThickness = new Thickness(0),
                         Cursor = Cursors.Hand,
@@ -954,7 +1146,7 @@ namespace KillerPDF
             {
                 Content = "Import Image",
                 Style = (Style)FindResource("DarkButton"),
-                Background = new SolidColorBrush(Color.FromRgb(0x1e, 0x3a, 0x2e)),
+                Background = BrushResource("AccentGreenDim"),
                 Foreground = (SolidColorBrush)FindResource("AccentGreen"),
                 BorderBrush = (SolidColorBrush)FindResource("AccentGreenDim"),
                 BorderThickness = new Thickness(1),
@@ -973,7 +1165,7 @@ namespace KillerPDF
 
             _signaturePopup = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(0x1e, 0x1e, 0x1e)),
+                Background = BrushResource("BgPanel"),
                 BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
@@ -1049,8 +1241,8 @@ namespace KillerPDF
             // Outer chrome
             var outerChrome = new Border
             {
-                Background      = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
-                BorderBrush     = new SolidColorBrush(Color.FromRgb(0x22, 0x54, 0x3d)),
+                Background      = BrushResource("BgDark"),
+                BorderBrush     = BrushResource("AccentGreenDim"),
                 BorderThickness = new Thickness(1),
                 CornerRadius    = new CornerRadius(6)
             };
@@ -1059,7 +1251,7 @@ namespace KillerPDF
             // Title bar
             var titleBar = new Border
             {
-                Background   = new SolidColorBrush(Color.FromRgb(0x24, 0x24, 0x24)),
+                Background   = BrushResource("BgPanel"),
                 Padding      = new Thickness(14, 8, 8, 8),
                 CornerRadius = new CornerRadius(5, 5, 0, 0)
             };
@@ -1070,7 +1262,7 @@ namespace KillerPDF
             var titleText = new TextBlock
             {
                 Text       = "Create Signature",
-                Foreground = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)),
+                Foreground = BrushResource("AccentGreen"),
                 FontWeight = FontWeights.SemiBold,
                 FontSize   = 13,
                 FontFamily = new FontFamily("Consolas"),
@@ -1084,13 +1276,13 @@ namespace KillerPDF
                 FontSize        = 10,
                 Width           = 28, Height = 28,
                 Background      = System.Windows.Media.Brushes.Transparent,
-                Foreground      = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
+                Foreground      = BrushResource("TextSecondary"),
                 BorderThickness = new Thickness(0),
                 Cursor          = Cursors.Hand,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            closeWinBtn.MouseEnter += (_, _2) => closeWinBtn.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x44, 0x44));
-            closeWinBtn.MouseLeave += (_, _2) => closeWinBtn.Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
+            closeWinBtn.MouseEnter += (_, _2) => closeWinBtn.Foreground = BrushResource("DangerRed");
+            closeWinBtn.MouseLeave += (_, _2) => closeWinBtn.Foreground = BrushResource("TextSecondary");
             closeWinBtn.Click += (_, _2) => win.Close();
             Grid.SetColumn(closeWinBtn, 1);
             titleGrid.Children.Add(titleText);
@@ -1120,7 +1312,7 @@ namespace KillerPDF
             var placeholder = new TextBlock
             {
                 Text = "Draw your signature here",
-                Foreground = new SolidColorBrush(Color.FromRgb(0xbb, 0xbb, 0xbb)),
+                Foreground = BrushResource("TextSecondary"),
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 14, FontStyle = FontStyles.Italic,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -1191,9 +1383,9 @@ namespace KillerPDF
                 Style = (Style)FindResource("DarkButton"),
                 Padding = new Thickness(16, 6, 16, 6),
                 Margin = new Thickness(0, 0, 8, 0),
-                Background = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
-                Foreground = new SolidColorBrush(Color.FromRgb(0xe0, 0xe0, 0xe0)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
+                Background = BrushResource("BgHover"),
+                Foreground = BrushResource("TextPrimary"),
+                BorderBrush = BrushResource("BorderDim"),
                 BorderThickness = new Thickness(1),
                 FontFamily = new FontFamily("Consolas")
             };
@@ -1210,9 +1402,9 @@ namespace KillerPDF
                 Content = "Save Signature",
                 Style = (Style)FindResource("DarkButton"),
                 Padding = new Thickness(16, 6, 16, 6),
-                Background = new SolidColorBrush(Color.FromRgb(0x22, 0x54, 0x3d)),
-                Foreground = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)),
+                Background = BrushResource("AccentGreenDim"),
+                Foreground = BrushResource("AccentGreen"),
+                BorderBrush = BrushResource("AccentGreen"),
                 BorderThickness = new Thickness(1),
                 FontFamily = new FontFamily("Consolas"),
                 FontWeight = FontWeights.SemiBold
@@ -1811,8 +2003,8 @@ namespace KillerPDF
                     Height = 28,
                     FontFamily = new FontFamily("Segoe UI"),
                     FontSize = 13,
-                    Background = new SolidColorBrush(Color.FromRgb(0x2a, 0x2a, 0x2a)),
-                    Foreground = new SolidColorBrush(Color.FromRgb(0xe0, 0xe0, 0xe0)),
+                    Background = BrushResource("BgPanel"),
+                    Foreground = BrushResource("TextPrimary"),
                     BorderBrush = (SolidColorBrush)FindResource("AccentGreen"),
                     BorderThickness = new Thickness(1),
                     Padding = new Thickness(6, 2, 6, 2),
@@ -1862,7 +2054,7 @@ namespace KillerPDF
 
                 _searchBar = new Border
                 {
-                    Background = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
+                    Background = BrushResource("BgDark"),
                     BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
                     BorderThickness = new Thickness(0, 0, 0, 1),
                     HorizontalAlignment = HorizontalAlignment.Right,
@@ -2694,8 +2886,8 @@ namespace KillerPDF
             if (_saveAsBtnRef != null)
             {
                 _saveAsBtnRef.Foreground = dirty
-                    ? new SolidColorBrush(Color.FromRgb(0xff, 0xa5, 0x00)) // orange = unsaved
-                    : (SolidColorBrush)FindResource("AccentGreen");
+                    ? BrushResource("WarningOrange")
+                    : BrushResource("AccentGreen");
             }
         }
 
@@ -3367,14 +3559,28 @@ namespace KillerPDF
     // ============================================================
     internal static class KillerDialog
     {
-        private static readonly System.Windows.Media.Color _green     = System.Windows.Media.Color.FromRgb(0x4a, 0xde, 0x80);
-        private static readonly System.Windows.Media.Color _dark      = System.Windows.Media.Color.FromRgb(0x1a, 0x1a, 0x1a);
-        private static readonly System.Windows.Media.Color _panel     = System.Windows.Media.Color.FromRgb(0x24, 0x24, 0x24);
-        private static readonly System.Windows.Media.Color _text      = System.Windows.Media.Color.FromRgb(0xe0, 0xe0, 0xe0);
-        private static readonly System.Windows.Media.Color _border    = System.Windows.Media.Color.FromRgb(0x33, 0x33, 0x33);
-        private static readonly System.Windows.Media.Color _greenDim  = System.Windows.Media.Color.FromRgb(0x22, 0x54, 0x3d);
-        private static readonly System.Windows.Media.Color _greenHov  = System.Windows.Media.Color.FromRgb(0x2d, 0x6a, 0x4f);
-        private static readonly System.Windows.Media.Color _hover     = System.Windows.Media.Color.FromRgb(0x2e, 0x2e, 0x2e);
+        private static SolidColorBrush Brush(string key)
+        {
+            return Application.Current?.TryFindResource(key) as SolidColorBrush
+                ?? SystemBrush(key);
+        }
+
+        private static SolidColorBrush SystemBrush(string key)
+        {
+            return key switch
+            {
+                "AccentGreen" => SystemColors.HighlightBrush,
+                "AccentGreenDim" => SystemColors.HighlightBrush,
+                "DangerRed" => SystemColors.HighlightBrush,
+                "BgDark" => SystemColors.WindowBrush,
+                "BgPanel" => SystemColors.WindowBrush,
+                "BgHover" => SystemColors.ControlBrush,
+                "BgPressed" => SystemColors.ControlDarkBrush,
+                "BorderDim" => SystemColors.WindowTextBrush,
+                "TextSecondary" => SystemColors.WindowTextBrush,
+                _ => SystemColors.WindowTextBrush
+            };
+        }
 
         public static MessageBoxResult Show(
             Window? owner,
@@ -3384,6 +3590,14 @@ namespace KillerPDF
             MessageBoxImage image = MessageBoxImage.None)
         {
             var result = MessageBoxResult.OK;
+            var green = Brush("AccentGreen");
+            var dark = Brush("BgDark");
+            var panel = Brush("BgPanel");
+            var text = Brush("TextPrimary");
+            var border = Brush("BorderDim");
+            var greenDim = Brush("AccentGreenDim");
+            var greenHov = Brush("BgPressed");
+            var hover = Brush("BgHover");
 
             var win = new Window
             {
@@ -3402,18 +3616,17 @@ namespace KillerPDF
 
             var outerBorder = new Border
             {
-                Background      = new SolidColorBrush(_dark),
-                BorderBrush     = new SolidColorBrush(_greenDim),
+                Background      = dark,
+                BorderBrush     = greenDim,
                 BorderThickness = new Thickness(1),
                 CornerRadius    = new CornerRadius(6)
             };
 
             var root = new StackPanel();
 
-            // Title bar
             var titleBar = new Border
             {
-                Background   = new SolidColorBrush(_panel),
+                Background   = panel,
                 Padding      = new Thickness(16, 10, 16, 10),
                 CornerRadius = new CornerRadius(5, 5, 0, 0)
             };
@@ -3421,33 +3634,29 @@ namespace KillerPDF
             titleBar.Child = new TextBlock
             {
                 Text       = title,
-                Foreground = new SolidColorBrush(_green),
+                Foreground = green,
                 FontWeight = FontWeights.SemiBold,
                 FontSize   = 13,
                 FontFamily = new System.Windows.Media.FontFamily("Consolas")
             };
             root.Children.Add(titleBar);
 
-            // Message
             var msgBorder = new Border { Padding = new Thickness(20, 16, 20, 8) };
             msgBorder.Child = new TextBlock
             {
                 Text        = message,
-                Foreground  = new SolidColorBrush(_text),
+                Foreground  = text,
                 FontSize    = 13,
                 TextWrapping = TextWrapping.Wrap
             };
             root.Children.Add(msgBorder);
 
-            // Buttons
             var btnPanel = new StackPanel
             {
                 Orientation         = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right
             };
 
-            // Build a minimal ControlTemplate so Background binds correctly and
-            // WPF's default blue hover chrome can't override our colors.
             static ControlTemplate MakeBtnTemplate()
             {
                 var bf = new FrameworkElementFactory(typeof(Border));
@@ -3473,16 +3682,16 @@ namespace KillerPDF
 
             Button MakeBtn(string label, MessageBoxResult res, bool accent = false)
             {
-                var bgNorm = accent ? new SolidColorBrush(_greenDim) : new SolidColorBrush(_panel);
-                var bgHov  = accent ? new SolidColorBrush(_greenHov) : new SolidColorBrush(_hover);
+                var bgNorm = accent ? greenDim : panel;
+                var bgHov  = accent ? greenHov : hover;
                 var btn = new Button
                 {
                     Content         = label,
                     Padding         = new Thickness(18, 6, 18, 6),
                     Margin          = new Thickness(8, 0, 0, 0),
                     Background      = bgNorm,
-                    Foreground      = accent ? new SolidColorBrush(_green) : new SolidColorBrush(_text),
-                    BorderBrush     = accent ? new SolidColorBrush(_green) : new SolidColorBrush(_border),
+                    Foreground      = accent ? green : text,
+                    BorderBrush     = accent ? green : border,
                     BorderThickness = new Thickness(1),
                     Cursor          = Cursors.Hand,
                     FontSize        = 12,
