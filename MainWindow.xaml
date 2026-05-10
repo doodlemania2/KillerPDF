@@ -491,6 +491,8 @@
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="ToolSelectBtn" Content="&#xE8B3;" Style="{StaticResource ToolbarButton}" Click="ToolSelect_Click" ToolTip="Select Tool - click annotations, drag to select text, double-click to edit"/>
                     <Button x:Name="ToolTextBtn" Content="&#xE8D2;" Style="{StaticResource ToolbarButton}" Click="ToolText_Click" ToolTip="Text Tool - click to add text"/>
+                    <Button x:Name="ToolEditTextBtn" Content="&#xE104;" Style="{StaticResource ToolbarButton}" Click="ToolEditText_Click" ToolTip="Edit Existing Text - click a PDF text run to white-out and redraw it"/>
+                    <Button x:Name="ToolEditImageBtn" Content="&#xEB9F;" Style="{StaticResource ToolbarButton}" Click="ToolEditImage_Click" ToolTip="Edit Existing Image - click a PDF image to replace, delete, or resize"/>
                     <Button x:Name="ToolHighlightBtn" Content="&#xED56;" Style="{StaticResource ToolbarButton}" Click="ToolHighlight_Click" ToolTip="Highlight Tool - drag to highlight"/>
                     <Button x:Name="ToolDrawBtn" Content="&#xED63;" Style="{StaticResource ToolbarButton}" Click="ToolDraw_Click" ToolTip="Draw Tool - freehand ink"/>
                     <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>

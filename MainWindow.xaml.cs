@@ -42,6 +42,12 @@ namespace KillerPDF
         private TextBox? _activeTextBox;
         private PageAnnotation? _selectedAnnotation;
         private Border? _selectionBorder;
+        private Rectangle? _imageResizeHandle;
+        private bool _isResizingImage;
+        private ImageEditAnnotation? _resizingImageEdit;
+        private Point _imageResizeStart;
+        private Rect _imageResizeOriginalBounds;
+        private readonly PdfContentEditor _contentEditor = new();
 
         // Draw/Highlight settings
         private Color _drawColor = Colors.Red;
@@ -74,6 +80,8 @@ namespace KillerPDF
         private Grid _pageContentGrid = null!;
         private Button _toolSelectBtn = null!;
         private Button _toolTextBtn = null!;
+        private Button _toolEditTextBtn = null!;
+        private Button _toolEditImageBtn = null!;
         private Button _toolHighlightBtn = null!;
         private Button _toolDrawBtn = null!;
         private Button _toolSignatureBtn = null!;
@@ -98,6 +106,8 @@ namespace KillerPDF
             _pageContentGrid = (Grid)FindName("PageContentGrid")!;
             _toolSelectBtn = (Button)FindName("ToolSelectBtn")!;
             _toolTextBtn = (Button)FindName("ToolTextBtn")!;
+            _toolEditTextBtn = (Button)FindName("ToolEditTextBtn")!;
+            _toolEditImageBtn = (Button)FindName("ToolEditImageBtn")!;
             _toolHighlightBtn = (Button)FindName("ToolHighlightBtn")!;
             _toolDrawBtn = (Button)FindName("ToolDrawBtn")!;
             _toolSignatureBtn = (Button)FindName("ToolSignatureBtn")!;
@@ -255,6 +265,8 @@ namespace KillerPDF
             menu.Items.Add(new Separator());
             menu.Items.Add(MakeMenuItem("Select Tool", (s, e) => SetTool(EditTool.Select)));
             menu.Items.Add(MakeMenuItem("Text Tool", (s, e) => SetTool(EditTool.Text)));
+            menu.Items.Add(MakeMenuItem("Edit Existing Text", (s, e) => SetTool(EditTool.EditText)));
+            menu.Items.Add(MakeMenuItem("Edit Existing Image", (s, e) => SetTool(EditTool.EditImage)));
             menu.Items.Add(MakeMenuItem("Highlight Tool", (s, e) => SetTool(EditTool.Highlight)));
             menu.Items.Add(MakeMenuItem("Draw Tool", (s, e) => SetTool(EditTool.Draw)));
             menu.Items.Add(new Separator());
@@ -285,6 +297,7 @@ namespace KillerPDF
                 if (_doc is not null) { _doc.Close(); _doc = null; }
                 _doc = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
                 _currentFile = path;
+                _contentEditor.ClearCache();
                 FinishOpenFile(path, path);
             }
             catch (Exception ex) when (IsOwnerPasswordException(ex))
@@ -296,6 +309,7 @@ namespace KillerPDF
                     if (_doc is not null) { _doc.Close(); _doc = null; }
                     _doc = PdfReader.Open(path, PdfDocumentOpenMode.ReadOnly);
                     _currentFile = path;
+                    _contentEditor.ClearCache();
                     FinishOpenFile(path, path);
                     SetStatus($"Opened {System.IO.Path.GetFileName(path)} (read-only - owner restrictions) - {_doc.PageCount} page(s)");
                 }
@@ -318,6 +332,7 @@ namespace KillerPDF
                     _doc.Close();
                     _doc = PdfReader.Open(tempDec, PdfDocumentOpenMode.Modify);
                     _currentFile = tempDec;
+                    _contentEditor.ClearCache();
                     FinishOpenFile(path, tempDec);
                 }
                 catch (Exception ex2)
@@ -341,6 +356,7 @@ namespace KillerPDF
             FileNameLabel.Text = System.IO.Path.GetFileName(displayPath);
             _annotations.Clear();
             _renderDims.Clear();
+            _contentEditor.ClearCache();
             _allSearchRects.Clear();
             _searchResultPages.Clear();
             _searchPageCursor = -1;
@@ -530,6 +546,8 @@ namespace KillerPDF
             {
                 (_toolSelectBtn, EditTool.Select),
                 (_toolTextBtn, EditTool.Text),
+                (_toolEditTextBtn, EditTool.EditText),
+                (_toolEditImageBtn, EditTool.EditImage),
                 (_toolHighlightBtn, EditTool.Highlight),
                 (_toolDrawBtn, EditTool.Draw),
                 (_toolSignatureBtn, EditTool.Signature)
@@ -547,6 +565,8 @@ namespace KillerPDF
             _annotationCanvas.Cursor = tool switch
             {
                 EditTool.Text => Cursors.IBeam,
+                EditTool.EditText => Cursors.IBeam,
+                EditTool.EditImage => Cursors.Hand,
                 EditTool.Highlight => Cursors.Cross,
                 EditTool.Draw => Cursors.Pen,
                 EditTool.Signature => Cursors.Hand,
@@ -569,6 +589,8 @@ namespace KillerPDF
 
         private void ToolSelect_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Select);
         private void ToolText_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Text);
+        private void ToolEditText_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.EditText);
+        private void ToolEditImage_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.EditImage);
         private void ToolHighlight_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Highlight);
         private void ToolDraw_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Draw);
         private void ToolSignature_Click(object sender, RoutedEventArgs e)
@@ -1347,6 +1369,18 @@ namespace KillerPDF
             int pageIdx = PageList.SelectedIndex;
             if (pageIdx < 0) return;
 
+            if (_currentTool == EditTool.EditImage && _imageResizeHandle is not null &&
+                e.OriginalSource == _imageResizeHandle && _selectedAnnotation is ImageEditAnnotation selectedImage)
+            {
+                _isResizingImage = true;
+                _resizingImageEdit = selectedImage;
+                _imageResizeStart = pos;
+                _imageResizeOriginalBounds = selectedImage.TargetBounds;
+                _annotationCanvas.CaptureMouse();
+                e.Handled = true;
+                return;
+            }
+
             switch (_currentTool)
             {
                 case EditTool.Select:
@@ -1382,6 +1416,18 @@ namespace KillerPDF
                 case EditTool.Text:
                     CommitActiveTextBox();
                     PlaceTextBox(pos, pageIdx);
+                    e.Handled = true;
+                    break;
+
+                case EditTool.EditText:
+                    CommitActiveTextBox();
+                    EditTextAtPosition(pos, pageIdx);
+                    e.Handled = true;
+                    break;
+
+                case EditTool.EditImage:
+                    CommitActiveTextBox();
+                    EditImageAtPosition(pos, pageIdx);
                     e.Handled = true;
                     break;
 
@@ -1451,6 +1497,12 @@ namespace KillerPDF
                 return;
             }
 
+            if (_isResizingImage && _resizingImageEdit is not null)
+            {
+                ResizeImageEditPreview(pos);
+                return;
+            }
+
             if (!_isDrawing || _activePreview is null) return;
 
             switch (_currentTool)
@@ -1506,6 +1558,18 @@ namespace KillerPDF
                         dragW, dragH);
                     ExtractTextFromRegion(pageIdx, selectBounds);
                 }
+                return;
+            }
+
+            if (_isResizingImage && _resizingImageEdit is not null)
+            {
+                _isResizingImage = false;
+                _annotationCanvas.ReleaseMouseCapture();
+                RenderAllAnnotations(_resizingImageEdit.PageIndex);
+                SelectAnnotation(_resizingImageEdit, _resizingImageEdit.TargetBounds);
+                MarkDirty();
+                SetStatus("Image resize committed - save to apply white-out + overdraw");
+                _resizingImageEdit = null;
                 return;
             }
 
@@ -1587,6 +1651,10 @@ namespace KillerPDF
                     bounds = tea.OriginalBounds;
                     return bounds.Contains(pos);
 
+                case ImageEditAnnotation iea:
+                    bounds = iea.TargetBounds;
+                    return bounds.Contains(pos);
+
                 case SignatureAnnotation sa:
                     double sigW = sa.SourceWidth * sa.Scale;
                     double sigH = sa.SourceHeight * sa.Scale;
@@ -1601,6 +1669,7 @@ namespace KillerPDF
 
         private void SelectAnnotation(PageAnnotation annot, Rect bounds)
         {
+            ClearSelection();
             _selectedAnnotation = annot;
             _selectionBorder = new Border
             {
@@ -1614,6 +1683,21 @@ namespace KillerPDF
             Canvas.SetLeft(_selectionBorder, bounds.X - 4);
             Canvas.SetTop(_selectionBorder, bounds.Y - 4);
             _annotationCanvas.Children.Add(_selectionBorder);
+            if (annot is ImageEditAnnotation)
+            {
+                _imageResizeHandle = new Rectangle
+                {
+                    Width = 12,
+                    Height = 12,
+                    Fill = (SolidColorBrush)FindResource("AccentGreen"),
+                    Stroke = Brushes.White,
+                    StrokeThickness = 1,
+                    Cursor = Cursors.SizeNWSE
+                };
+                Canvas.SetLeft(_imageResizeHandle, bounds.Right - 2);
+                Canvas.SetTop(_imageResizeHandle, bounds.Bottom - 2);
+                _annotationCanvas.Children.Add(_imageResizeHandle);
+            }
             SetStatus($"Selected {annot.GetType().Name.Replace("Annotation", "").ToLower()} annotation - press Delete to remove");
         }
 
@@ -1635,6 +1719,11 @@ namespace KillerPDF
                 _annotationCanvas.Children.Remove(_selectionBorder);
                 _selectionBorder = null;
             }
+            if (_imageResizeHandle is not null)
+            {
+                _annotationCanvas.Children.Remove(_imageResizeHandle);
+                _imageResizeHandle = null;
+            }
             _selectedAnnotation = null;
         }
 
@@ -1646,6 +1735,7 @@ namespace KillerPDF
                 _annotations[pageIdx].Remove(_selectedAnnotation);
             ClearSelection();
             RenderAllAnnotations(pageIdx);
+            MarkDirty();
             SetStatus("Deleted selected annotation");
         }
 
@@ -2111,6 +2201,7 @@ namespace KillerPDF
         private void EditTextAtPosition(Point canvasPos, int pageIdx)
         {
             if (_currentFile is null || !_renderDims.ContainsKey(pageIdx)) return;
+            ClearSelection();
 
             // Commit any existing edit first
             if (_activeTextBox is not null)
@@ -2122,128 +2213,36 @@ namespace KillerPDF
             try
             {
                 var (renderW, renderH) = _renderDims[pageIdx];
-
-                using var pigDoc = PdfPigDoc.Open(_currentFile);
-                if (pageIdx >= pigDoc.NumberOfPages) return;
-                var page = pigDoc.GetPage(pageIdx + 1);
-
-                double pdfW = page.Width;
-                double pdfH = page.Height;
-                double sxInv = (double)renderW / pdfW; // pdf->canvas
-                double syInv = (double)renderH / pdfH;
-
-                // Convert all words to canvas coordinates upfront
-                var canvasWords = page.GetWords().Select(w =>
-                {
-                    double cx = w.BoundingBox.Left * sxInv;
-                    double cy = renderH - (w.BoundingBox.Top * syInv);
-                    double cw = (w.BoundingBox.Right - w.BoundingBox.Left) * sxInv;
-                    double ch = (w.BoundingBox.Top - w.BoundingBox.Bottom) * syInv;
-                    return new { Word = w, Rect = new Rect(cx, cy, cw, ch) };
-                }).ToList();
-
-                if (canvasWords.Count == 0) { SetStatus("No text found at this position"); return; }
-
-                // Find words on the same line as the click (Y overlap with tolerance)
-                var clickY = canvasPos.Y;
-                var lineWords = canvasWords
-                    .Where(cw => clickY >= cw.Rect.Top - 3 && clickY <= cw.Rect.Bottom + 3)
-                    .OrderBy(cw => cw.Rect.Left)  // strictly left-to-right
-                    .ToList();
-
-                if (lineWords.Count == 0)
-                {
-                    // Try nearest line within 20px
-                    var nearest = canvasWords
-                        .OrderBy(cw => Math.Abs((cw.Rect.Top + cw.Rect.Bottom) / 2 - clickY))
-                        .First();
-                    double nearMidY = (nearest.Rect.Top + nearest.Rect.Bottom) / 2;
-                    lineWords = canvasWords
-                        .Where(cw => Math.Abs((cw.Rect.Top + cw.Rect.Bottom) / 2 - nearMidY) < 5)
-                        .OrderBy(cw => cw.Rect.Left)
-                        .ToList();
-                }
-
-                if (lineWords.Count == 0)
-                {
-                    SetStatus("No text line found at this position");
-                    return;
-                }
-
-                // Compute bounding box in canvas space
-                double cLeft = lineWords.Min(w => w.Rect.Left);
-                double cTop = lineWords.Min(w => w.Rect.Top);
-                double cRight = lineWords.Max(w => w.Rect.Right);
-                double cBottom = lineWords.Max(w => w.Rect.Bottom);
-                double cWidth = cRight - cLeft;
-                double cHeight = cBottom - cTop;
-
-                string lineText = string.Join(" ", lineWords.Select(w => w.Word.Text));
-
-                // Get actual font info from PdfPig letter data
-                double canvasFontSize = cHeight * 0.75; // fallback
-                string fontName = "Segoe UI"; // fallback
-                var firstWord = lineWords.First().Word;
-                try
-                {
-                    if (firstWord.Letters.Count > 0)
-                    {
-                        var letter = firstWord.Letters[0];
-                        double pdfFontPts = letter.FontSize;
-                        canvasFontSize = pdfFontPts * syInv;
-
-                        // Try to get font name from letter
-                        string? rawFont = null;
-                        try { rawFont = letter.FontName; } catch { }
-                        if (string.IsNullOrEmpty(rawFont))
-                        {
-                            // Some PdfPig versions use different property paths
-                            try { rawFont = firstWord.FontName; } catch { }
-                        }
-                        if (!string.IsNullOrEmpty(rawFont))
-                        {
-                            string fontStr = rawFont!;
-                            // Strip PDF subset prefix (e.g. "ABCDEF+FontName" -> "FontName")
-                            if (fontStr.Contains('+'))
-                                fontStr = fontStr.Substring(fontStr.IndexOf('+') + 1);
-                            // Clean common suffixes
-                            fontStr = fontStr.Replace(",Bold", "").Replace(",Italic", "")
-                                             .Replace("-Bold", "").Replace("-Italic", "")
-                                             .Replace("-Roman", "").Replace("-Regular", "");
-                            if (!string.IsNullOrWhiteSpace(fontStr))
-                                fontName = fontStr;
-                        }
-                    }
-                }
-                catch { /* use fallbacks */ }
+                var hit = _contentEditor.FindTextRunAt(_currentFile, pageIdx, canvasPos, renderW, renderH);
+                if (hit is null) { SetStatus("No text found at this position"); return; }
 
                 // Show editable TextBox over the line
                 var tb = new TextBox
                 {
-                    Text = lineText,
+                    Text = hit.Text,
                     Background = new SolidColorBrush(Color.FromArgb(240, 255, 255, 255)),
                     Foreground = Brushes.Black,
                     BorderBrush = (SolidColorBrush)FindResource("AccentGreen"),
                     BorderThickness = new Thickness(2),
-                    FontFamily = new FontFamily(fontName),
-                    FontSize = Math.Max(canvasFontSize, 10),
-                    MinWidth = Math.Max(cWidth + 20, 100),
-                    Height = Math.Max(cHeight + 12, 24),
+                    FontFamily = new FontFamily(hit.FontName),
+                    FontSize = hit.FontSize,
+                    MinWidth = Math.Max(hit.CanvasBounds.Width + 20, 100),
+                    Height = Math.Max(hit.CanvasBounds.Height + 12, 24),
                     Padding = new Thickness(2, 0, 2, 0),
                     VerticalContentAlignment = VerticalAlignment.Center,
                     AcceptsReturn = false,
                     Tag = new TextEditContext
                     {
                         PageIndex = pageIdx,
-                        OriginalText = lineText,
-                        CanvasBounds = new Rect(cLeft, cTop, cWidth, cHeight),
-                        Position = new Point(cLeft, cTop),
-                        FontSize = Math.Max(canvasFontSize, 10),
-                        FontName = fontName
+                        OriginalText = hit.Text,
+                        CanvasBounds = hit.CanvasBounds,
+                        Position = hit.Position,
+                        FontSize = hit.FontSize,
+                        FontName = hit.FontName
                     }
                 };
-                Canvas.SetLeft(tb, cLeft);
-                Canvas.SetTop(tb, cTop);
+                Canvas.SetLeft(tb, hit.CanvasBounds.X);
+                Canvas.SetTop(tb, hit.CanvasBounds.Y);
                 _annotationCanvas.Children.Add(tb);
                 _activeTextBox = tb;
 
@@ -2251,13 +2250,13 @@ namespace KillerPDF
                 var whiteout = new Rectangle
                 {
                     Fill = Brushes.White,
-                    Width = cWidth + 4,
-                    Height = cHeight + 4,
+                    Width = hit.CanvasBounds.Width + 4,
+                    Height = hit.CanvasBounds.Height + 4,
                     IsHitTestVisible = false,
                     Tag = "EditWhiteout"
                 };
-                Canvas.SetLeft(whiteout, cLeft - 2);
-                Canvas.SetTop(whiteout, cTop - 2);
+                Canvas.SetLeft(whiteout, hit.CanvasBounds.X - 2);
+                Canvas.SetTop(whiteout, hit.CanvasBounds.Y - 2);
                 int tbIdx = _annotationCanvas.Children.IndexOf(tb);
                 _annotationCanvas.Children.Insert(tbIdx, whiteout);
 
@@ -2360,6 +2359,130 @@ namespace KillerPDF
             AddAnnotation(edit);
             RenderAllAnnotations(ctx.PageIndex);
             SetStatus($"Text edited: \"{ctx.OriginalText}\" -> \"{newText}\"");
+        }
+
+        private void EditImageAtPosition(Point canvasPos, int pageIdx)
+        {
+            if (_currentFile is null || !_renderDims.ContainsKey(pageIdx)) return;
+
+            if (_annotations.TryGetValue(pageIdx, out var pageAnnots))
+            {
+                for (int i = pageAnnots.Count - 1; i >= 0; i--)
+                {
+                    if (pageAnnots[i] is ImageEditAnnotation existing && existing.TargetBounds.Contains(canvasPos))
+                    {
+                        SelectAnnotation(existing, existing.TargetBounds);
+                        ShowImageEditMenu(existing);
+                        return;
+                    }
+                }
+            }
+
+            var (renderW, renderH) = _renderDims[pageIdx];
+            var hit = _contentEditor.FindImageAt(_currentFile, pageIdx, canvasPos, renderW, renderH);
+            if (hit is null)
+            {
+                SetStatus("No image found at this position");
+                return;
+            }
+
+            var edit = new ImageEditAnnotation
+            {
+                PageIndex = pageIdx,
+                OriginalBounds = hit.CanvasBounds,
+                TargetBounds = hit.CanvasBounds,
+                OriginalImageData = CapturePageImageRegion(hit.CanvasBounds)
+            };
+            AddAnnotation(edit);
+            RenderAllAnnotations(pageIdx);
+            SelectAnnotation(edit, edit.TargetBounds);
+            ShowImageEditMenu(edit);
+            SetStatus("Image selected - replace, delete, or drag the green handle to resize");
+        }
+
+        private string? CapturePageImageRegion(Rect bounds)
+        {
+            if (PageImage.Source is not BitmapSource source) return null;
+
+            int x = Math.Max(0, (int)Math.Floor(bounds.X));
+            int y = Math.Max(0, (int)Math.Floor(bounds.Y));
+            int right = Math.Min(source.PixelWidth, (int)Math.Ceiling(bounds.Right));
+            int bottom = Math.Min(source.PixelHeight, (int)Math.Ceiling(bounds.Bottom));
+            if (right <= x || bottom <= y) return null;
+
+            var crop = new CroppedBitmap(source, new Int32Rect(x, y, right - x, bottom - y));
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(crop));
+            using var ms = new MemoryStream();
+            encoder.Save(ms);
+            return Convert.ToBase64String(ms.ToArray());
+        }
+
+        private void ShowImageEditMenu(ImageEditAnnotation edit)
+        {
+            var menu = new ContextMenu();
+            menu.Items.Add(MakeMenuItem("Replace Image...", (s, e) => ReplaceImageEdit(edit)));
+            menu.Items.Add(MakeMenuItem("Delete Image", (s, e) => DeleteImageEdit(edit)));
+            menu.Items.Add(MakeMenuItem("Reset Size", (s, e) => ResetImageEditSize(edit)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "Resize: drag the green handle" });
+            menu.PlacementTarget = _annotationCanvas;
+            menu.IsOpen = true;
+        }
+
+        private void ReplaceImageEdit(ImageEditAnnotation edit)
+        {
+            var dlg = new OpenFileDialog
+            {
+                Filter = "Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif|All files|*.*",
+                Title = "Select replacement image"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            edit.ReplacementImagePath = dlg.FileName;
+            edit.IsDeleted = false;
+            RenderAllAnnotations(edit.PageIndex);
+            SelectAnnotation(edit, edit.TargetBounds);
+            MarkDirty();
+            SetStatus("Replacement image selected - save to apply white-out + overdraw");
+        }
+
+        private void DeleteImageEdit(ImageEditAnnotation edit)
+        {
+            edit.IsDeleted = true;
+            RenderAllAnnotations(edit.PageIndex);
+            SelectAnnotation(edit, edit.TargetBounds);
+            MarkDirty();
+            SetStatus("Image marked for deletion - save to apply white-out");
+        }
+
+        private void ResetImageEditSize(ImageEditAnnotation edit)
+        {
+            edit.TargetBounds = edit.OriginalBounds;
+            RenderAllAnnotations(edit.PageIndex);
+            SelectAnnotation(edit, edit.TargetBounds);
+            MarkDirty();
+            SetStatus("Image size reset");
+        }
+
+        private void ResizeImageEditPreview(Point pos)
+        {
+            if (_resizingImageEdit is null) return;
+
+            double newW = Math.Max(8, _imageResizeOriginalBounds.Width + (pos.X - _imageResizeStart.X));
+            double newH = Math.Max(8, _imageResizeOriginalBounds.Height + (pos.Y - _imageResizeStart.Y));
+            _resizingImageEdit.TargetBounds = new Rect(_imageResizeOriginalBounds.X, _imageResizeOriginalBounds.Y, newW, newH);
+
+            if (_selectionBorder is not null)
+            {
+                _selectionBorder.Width = newW + 8;
+                _selectionBorder.Height = newH + 8;
+            }
+            if (_imageResizeHandle is not null)
+            {
+                Canvas.SetLeft(_imageResizeHandle, _resizingImageEdit.TargetBounds.Right - 2);
+                Canvas.SetTop(_imageResizeHandle, _resizingImageEdit.TargetBounds.Bottom - 2);
+            }
         }
 
         // ============================================================
@@ -2604,6 +2727,38 @@ namespace KillerPDF
                         _annotationCanvas.Children.Add(etb);
                         break;
 
+                    case ImageEditAnnotation iea:
+                        var imageWhiteout = new Rectangle
+                        {
+                            Fill = Brushes.White,
+                            Width = iea.OriginalBounds.Width + 4,
+                            Height = iea.OriginalBounds.Height + 4,
+                            IsHitTestVisible = false
+                        };
+                        Canvas.SetLeft(imageWhiteout, iea.OriginalBounds.X - 2);
+                        Canvas.SetTop(imageWhiteout, iea.OriginalBounds.Y - 2);
+                        _annotationCanvas.Children.Add(imageWhiteout);
+
+                        if (!iea.IsDeleted)
+                        {
+                            var source = LoadImageEditBitmap(iea);
+                            if (source is not null)
+                            {
+                                var imgCtrl = new System.Windows.Controls.Image
+                                {
+                                    Source = source,
+                                    Width = iea.TargetBounds.Width,
+                                    Height = iea.TargetBounds.Height,
+                                    Stretch = Stretch.Fill,
+                                    IsHitTestVisible = false
+                                };
+                                Canvas.SetLeft(imgCtrl, iea.TargetBounds.X);
+                                Canvas.SetTop(imgCtrl, iea.TargetBounds.Y);
+                                _annotationCanvas.Children.Add(imgCtrl);
+                            }
+                        }
+                        break;
+
                     case SignatureAnnotation sa:
                         if (sa.ImageData is not null)
                         {
@@ -2652,6 +2807,35 @@ namespace KillerPDF
                         }
                         break;
                 }
+            }
+        }
+
+        private static BitmapSource? LoadImageEditBitmap(ImageEditAnnotation edit)
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                if (!string.IsNullOrWhiteSpace(edit.ReplacementImagePath) && System.IO.File.Exists(edit.ReplacementImagePath))
+                {
+                    bmp.UriSource = new Uri(edit.ReplacementImagePath, UriKind.Absolute);
+                }
+                else if (!string.IsNullOrEmpty(edit.OriginalImageData))
+                {
+                    bmp.StreamSource = new MemoryStream(Convert.FromBase64String(edit.OriginalImageData));
+                }
+                else
+                {
+                    return null;
+                }
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                bmp.Freeze();
+                return bmp;
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -2718,6 +2902,7 @@ namespace KillerPDF
             _currentFile = null;
             _annotations.Clear();
             _renderDims.Clear();
+            _contentEditor.ClearCache();
             _allSearchRects.Clear();
             _searchResultPages.Clear();
             _searchPageCursor = -1;
@@ -3069,7 +3254,9 @@ namespace KillerPDF
                             break;
 
                         case TextEditAnnotation tea:
-                            // White-out original text area
+                            // PdfSharpCore cannot surgically edit existing PDF content streams here.
+                            // Existing text/image edits are approximated by painting a white rectangle
+                            // over the original region, then drawing replacement content on top.
                             var whiteRect = new XSolidBrush(XColors.White);
                             gfx.DrawRectangle(whiteRect,
                                 (tea.OriginalBounds.X - 2) * sx, (tea.OriginalBounds.Y - 2) * sy,
@@ -3078,6 +3265,37 @@ namespace KillerPDF
                             var editFont = new XFont(tea.FontName, tea.FontSize * sy);
                             double ety = tea.Position.Y * sy + tea.FontSize * sy;
                             gfx.DrawString(tea.NewContent, editFont, XBrushes.Black, tea.Position.X * sx, ety);
+                            break;
+
+                        case ImageEditAnnotation iea:
+                            var imageWhiteRect = new XSolidBrush(XColors.White);
+                            gfx.DrawRectangle(imageWhiteRect,
+                                (iea.OriginalBounds.X - 2) * sx, (iea.OriginalBounds.Y - 2) * sy,
+                                (iea.OriginalBounds.Width + 4) * sx, (iea.OriginalBounds.Height + 4) * sy);
+                            if (!iea.IsDeleted)
+                            {
+                                try
+                                {
+                                    XImage? xImg = null;
+                                    if (!string.IsNullOrWhiteSpace(iea.ReplacementImagePath) && System.IO.File.Exists(iea.ReplacementImagePath))
+                                    {
+                                        xImg = XImage.FromFile(iea.ReplacementImagePath);
+                                    }
+                                    else if (!string.IsNullOrEmpty(iea.OriginalImageData))
+                                    {
+                                        var imageBytes = Convert.FromBase64String(iea.OriginalImageData);
+                                        xImg = XImage.FromStream(() => new MemoryStream(imageBytes));
+                                    }
+
+                                    if (xImg is not null)
+                                    {
+                                        gfx.DrawImage(xImg,
+                                            iea.TargetBounds.X * sx, iea.TargetBounds.Y * sy,
+                                            iea.TargetBounds.Width * sx, iea.TargetBounds.Height * sy);
+                                    }
+                                }
+                                catch { /* skip broken image edit */ }
+                            }
                             break;
 
                         case SignatureAnnotation sa:
@@ -3127,6 +3345,7 @@ namespace KillerPDF
             if (_doc is null || _currentFile is null) return;
             _annotations.Clear();
             _renderDims.Clear();
+            _contentEditor.ClearCache();
             ClearSelection();
             MarkDirty();
             var doc = _doc;

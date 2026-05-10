@@ -3,7 +3,7 @@ using System.Windows.Media;
 
 namespace KillerPDF
 {
-    public enum EditTool { Select, Text, Highlight, Draw, Signature }
+    public enum EditTool { Select, Text, Highlight, Draw, Signature, EditText, EditImage }
 
     public abstract class PageAnnotation
     {
@@ -53,6 +53,18 @@ namespace KillerPDF
         public string OriginalContent { get; set; } = "";
         public double FontSize { get; set; } = 14;
         public string FontName { get; set; } = "Segoe UI";
+    }
+
+    /// <summary>
+    /// Represents an edit to an existing PDF image: white-out original bounds, then optionally redraw.
+    /// </summary>
+    public class ImageEditAnnotation : PageAnnotation
+    {
+        public Rect OriginalBounds { get; set; }
+        public Rect TargetBounds { get; set; }
+        public string? OriginalImageData { get; set; }
+        public string? ReplacementImagePath { get; set; }
+        public bool IsDeleted { get; set; }
     }
 
     /// <summary>
