@@ -35,6 +35,8 @@ namespace KillerPDF
         private EditTool _currentTool = EditTool.Select;
         private readonly Dictionary<int, List<PageAnnotation>> _annotations = new();
         private readonly Dictionary<int, (int w, int h)> _renderDims = new();
+        private readonly Dictionary<(int pageIndex, int dpiX), RenderedPage> _renderCache = new();
+        private double _currentDpiScale = 1.0;
         private bool _isDrawing;
         private Point _drawStart;
         private UIElement? _activePreview;
@@ -124,12 +126,16 @@ namespace KillerPDF
 
         private void MainWindow_SourceInitialized(object? sender, EventArgs e)
         {
+            UpdateCurrentDpiScale();
             var hwnd = new WindowInteropHelper(this).Handle;
             HwndSource.FromHwnd(hwnd)?.AddHook(WndProc);
         }
 
         private const int WM_GETMINMAXINFO = 0x0024;
+        private const int WM_DPICHANGED = 0x02E0;
         private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
@@ -138,7 +144,24 @@ namespace KillerPDF
                 WmGetMinMaxInfo(hwnd, lParam);
                 handled = true;
             }
+            else if (msg == WM_DPICHANGED)
+            {
+                WmDpiChanged(hwnd, wParam, lParam);
+                handled = true;
+            }
             return IntPtr.Zero;
+        }
+
+        private void WmDpiChanged(IntPtr hwnd, IntPtr wParam, IntPtr lParam)
+        {
+            var rect = Marshal.PtrToStructure<RECT>(lParam);
+            SetWindowPos(hwnd, IntPtr.Zero, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+
+            int dpiX = wParam.ToInt32() & 0xFFFF;
+            _currentDpiScale = dpiX > 0 ? dpiX / 96.0 : GetCurrentDpiScaleFromVisual();
+            InvalidateRenderCache();
+            RerenderCurrentPage();
         }
 
         private static void WmGetMinMaxInfo(IntPtr hwnd, IntPtr lParam)
@@ -166,6 +189,9 @@ namespace KillerPDF
 
         [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -196,6 +222,24 @@ namespace KillerPDF
             public RECT rcMonitor;
             public RECT rcWork;
             public uint dwFlags;
+        }
+
+        private sealed class RenderedPage
+        {
+            public RenderedPage(BitmapSource bitmap, double displayWidth, double displayHeight, int pixelWidth, int pixelHeight)
+            {
+                Bitmap = bitmap;
+                DisplayWidth = displayWidth;
+                DisplayHeight = displayHeight;
+                PixelWidth = pixelWidth;
+                PixelHeight = pixelHeight;
+            }
+
+            public BitmapSource Bitmap { get; }
+            public double DisplayWidth { get; }
+            public double DisplayHeight { get; }
+            public int PixelWidth { get; }
+            public int PixelHeight { get; }
         }
 
         // ============================================================
@@ -340,7 +384,7 @@ namespace KillerPDF
             _currentFile = workingPath;
             FileNameLabel.Text = System.IO.Path.GetFileName(displayPath);
             _annotations.Clear();
-            _renderDims.Clear();
+            InvalidateRenderCache();
             _allSearchRects.Clear();
             _searchResultPages.Clear();
             _searchPageCursor = -1;
@@ -476,33 +520,83 @@ namespace KillerPDF
             }
         }
 
+        private void UpdateCurrentDpiScale()
+        {
+            _currentDpiScale = GetCurrentDpiScaleFromVisual();
+        }
+
+        private double GetCurrentDpiScaleFromVisual()
+        {
+            var source = PresentationSource.FromVisual(this);
+            var transform = source?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+            return transform.M11 > 0 ? transform.M11 : 1.0;
+        }
+
+        private int GetCurrentDpiX()
+        {
+            return Math.Max(1, (int)Math.Round(_currentDpiScale * 96.0));
+        }
+
+        private void InvalidateRenderCache()
+        {
+            _renderCache.Clear();
+            _renderDims.Clear();
+        }
+
+        private void RerenderCurrentPage()
+        {
+            int pageIndex = PageList.SelectedIndex;
+            if (pageIndex < 0 || _doc is null) return;
+
+            RenderPage(pageIndex);
+            ApplyZoom();
+            if (_searchBar is not null && _searchBar.Visibility == Visibility.Visible
+                && _allSearchRects.Count > 0)
+            {
+                HighlightSearchResultsOnCurrentPage();
+            }
+        }
+
         private void RenderPage(int pageIndex)
         {
             if (_currentFile is null || _doc is null) return;
             try
             {
-                using var docReader = DocLib.Instance.GetDocReader(_currentFile, new PageDimensions(1536, 1536));
-                using var pageReader = docReader.GetPageReader(pageIndex);
-
-                int width = pageReader.GetPageWidth();
-                int height = pageReader.GetPageHeight();
-                var rawBytes = pageReader.GetImage();
-
-                if (width <= 0 || height <= 0 || rawBytes == null || rawBytes.Length == 0)
+                int dpiX = GetCurrentDpiX();
+                if (!_renderCache.TryGetValue((pageIndex, dpiX), out var renderedPage))
                 {
-                    PageImage.Source = null;
-                    SetStatus($"Page {pageIndex + 1} - could not render");
-                    return;
+                    double renderScale = dpiX / 96.0;
+                    int renderMax = Math.Max(1, (int)Math.Round(1536 * renderScale));
+
+                    using var docReader = DocLib.Instance.GetDocReader(_currentFile, new PageDimensions(renderMax, renderMax));
+                    using var pageReader = docReader.GetPageReader(pageIndex);
+
+                    int width = pageReader.GetPageWidth();
+                    int height = pageReader.GetPageHeight();
+                    var rawBytes = pageReader.GetImage();
+
+                    if (width <= 0 || height <= 0 || rawBytes == null || rawBytes.Length == 0)
+                    {
+                        PageImage.Source = null;
+                        SetStatus($"Page {pageIndex + 1} - could not render");
+                        return;
+                    }
+
+                    var bitmap = new WriteableBitmap(width, height, dpiX, dpiX, PixelFormats.Bgra32, null);
+                    bitmap.WritePixels(new Int32Rect(0, 0, width, height), rawBytes, width * 4, 0);
+                    bitmap.Freeze();
+
+                    renderedPage = new RenderedPage(bitmap, width / renderScale, height / renderScale, width, height);
+                    _renderCache[(pageIndex, dpiX)] = renderedPage;
                 }
 
-                _renderDims[pageIndex] = (width, height);
+                _renderDims[pageIndex] = ((int)Math.Round(renderedPage.DisplayWidth), (int)Math.Round(renderedPage.DisplayHeight));
 
-                var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
-                bitmap.WritePixels(new Int32Rect(0, 0, width, height), rawBytes, width * 4, 0);
-
-                PageImage.Source = bitmap;
-                _annotationCanvas.Width = width;
-                _annotationCanvas.Height = height;
+                PageImage.Source = renderedPage.Bitmap;
+                PageImage.Width = renderedPage.DisplayWidth;
+                PageImage.Height = renderedPage.DisplayHeight;
+                _annotationCanvas.Width = renderedPage.DisplayWidth;
+                _annotationCanvas.Height = renderedPage.DisplayHeight;
                 ClearSelection();
                 RenderAllAnnotations(pageIndex);
                 SetStatus($"Page {pageIndex + 1} of {_doc.PageCount}");
@@ -2717,12 +2811,17 @@ namespace KillerPDF
             _doc = null;
             _currentFile = null;
             _annotations.Clear();
-            _renderDims.Clear();
+            InvalidateRenderCache();
             _allSearchRects.Clear();
             _searchResultPages.Clear();
             _searchPageCursor = -1;
             PageList.Items.Clear();
-            if (FindName("PageImage") is System.Windows.Controls.Image img) img.Source = null;
+            if (FindName("PageImage") is System.Windows.Controls.Image img)
+            {
+                img.Source = null;
+                img.Width = double.NaN;
+                img.Height = double.NaN;
+            }
             _annotationCanvas.Children.Clear();
             FileNameLabel.Text = "";
             DropZone.Visibility = Visibility.Visible;
@@ -3126,7 +3225,7 @@ namespace KillerPDF
         {
             if (_doc is null || _currentFile is null) return;
             _annotations.Clear();
-            _renderDims.Clear();
+            InvalidateRenderCache();
             ClearSelection();
             MarkDirty();
             var doc = _doc;
