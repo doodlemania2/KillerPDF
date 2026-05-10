@@ -1158,8 +1158,8 @@ namespace KillerPDF
             {
                 if (currentStroke is null || currentPoly is null) return;
                 var pos = e.GetPosition(drawCanvas);
-                pos.X = Math.Max(0, Math.Min(drawCanvas.ActualWidth, pos.X));
-                pos.Y = Math.Max(0, Math.Min(drawCanvas.ActualHeight, pos.Y));
+                pos.X = Math.Clamp(pos.X, 0, drawCanvas.ActualWidth);
+                pos.Y = Math.Clamp(pos.Y, 0, drawCanvas.ActualHeight);
                 currentStroke.Add(pos);
                 currentPoly.Points.Add(pos);
             };
@@ -1438,8 +1438,8 @@ namespace KillerPDF
         private void Canvas_MouseMove(object sender, MouseEventArgs e)
         {
             var pos = e.GetPosition(_annotationCanvas);
-            pos.X = Math.Max(0, Math.Min(_annotationCanvas.ActualWidth, pos.X));
-            pos.Y = Math.Max(0, Math.Min(_annotationCanvas.ActualHeight, pos.Y));
+            pos.X = Math.Clamp(pos.X, 0, _annotationCanvas.ActualWidth);
+            pos.Y = Math.Clamp(pos.Y, 0, _annotationCanvas.ActualHeight);
 
             // Text selection drag
             if (_isSelecting && _selectRect is not null)
@@ -3233,7 +3233,7 @@ namespace KillerPDF
             if (double.TryParse(tag, System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out double z))
             {
-                _zoomLevel = Math.Max(ZoomMin, Math.Min(ZoomMax, z));
+                _zoomLevel = Math.Clamp(z, ZoomMin, ZoomMax);
                 ApplyZoom();
                 if (PageList.SelectedIndex >= 0 && _doc != null)
                     SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc.PageCount} - {_zoomLevel * 100:F0}%");
@@ -3245,7 +3245,7 @@ namespace KillerPDF
             if (PageImage.Source is null || PageImage.ActualWidth <= 0) return;
             double viewW = PagePreviewPanel.ActualWidth - 40;
             if (viewW <= 0) return;
-            _zoomLevel = Math.Max(ZoomMin, Math.Min(ZoomMax, viewW / PageImage.ActualWidth));
+            _zoomLevel = Math.Clamp(viewW / PageImage.ActualWidth, ZoomMin, ZoomMax);
             ApplyZoom();
             if (PageList.SelectedIndex >= 0 && _doc != null)
                 SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc.PageCount} - Fit Width ({_zoomLevel * 100:F0}%)");
@@ -3257,8 +3257,10 @@ namespace KillerPDF
             double viewW = PagePreviewPanel.ActualWidth  - 40;
             double viewH = PagePreviewPanel.ActualHeight - 40;
             if (viewW <= 0 || viewH <= 0) return;
-            _zoomLevel = Math.Max(ZoomMin, Math.Min(ZoomMax,
-                Math.Min(viewW / PageImage.ActualWidth, viewH / PageImage.ActualHeight)));
+            _zoomLevel = Math.Clamp(
+                Math.Min(viewW / PageImage.ActualWidth, viewH / PageImage.ActualHeight),
+                ZoomMin,
+                ZoomMax);
             ApplyZoom();
             if (PageList.SelectedIndex >= 0 && _doc != null)
                 SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc.PageCount} - Fit Page ({_zoomLevel * 100:F0}%)");

@@ -3,7 +3,7 @@
 .SYNOPSIS
     KillerPDF release script: build → sign → SHA256 → print summary.
 .DESCRIPTION
-    1. Publishes using FolderProfile1 (net48, win-x64) — also runs bundle-source.ps1 to zip the source.
+    1. Publishes for net9.0-windows/win-x64 — also runs bundle-source.ps1 to zip the source.
     2. Signs KillerPDF.exe with your Certum cert via signtool.
     3. Computes and prints the SHA256 for pasting into the landing pages.
 
@@ -27,32 +27,13 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $proj      = Join-Path $PSScriptRoot "KillerPDF.csproj"
-$publishDir = Join-Path $PSScriptRoot "bin\Release\net48\publish"
+$publishDir = Join-Path $PSScriptRoot "bin\Release\net9.0-windows\win-x64\publish"
 $exe       = Join-Path $publishDir "KillerPDF.exe"
 
 # ── 1. Build / Publish ──────────────────────────────────────────────────────
-Write-Host "`n==> Building (Release, net48, win-x64)..." -ForegroundColor Cyan
+Write-Host "`n==> Building (Release, net9.0-windows, win-x64)..." -ForegroundColor Cyan
 
-# Find MSBuild
-$msbuild = $null
-$vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-if (Test-Path $vsWhere) {
-    $vsPath = & $vsWhere -latest -requires Microsoft.Component.MSBuild -property installationPath 2>$null
-    if ($vsPath) {
-        $candidate = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
-        if (Test-Path $candidate) { $msbuild = $candidate }
-    }
-}
-if (-not $msbuild) {
-    # Try dotnet as fallback
-    $msbuild = "dotnet"
-}
-
-if ($msbuild -eq "dotnet") {
-    & dotnet publish $proj /p:PublishProfile=FolderProfile1 -c Release
-} else {
-    & $msbuild $proj /t:Publish /p:PublishProfile=FolderProfile1 /p:Configuration=Release /m /nologo /v:m
-}
+& dotnet publish $proj -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true
 
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 if (-not (Test-Path $exe)) { throw "EXE not found at: $exe" }
@@ -82,7 +63,10 @@ if (-not $SkipSign) {
         /v   $exe
 
     if ($LASTEXITCODE -ne 0) { throw "Signing failed. Is Certum SimplySign Desktop running?" }
-    Write-Host "    Signed OK" -ForegroundColor Green
+
+    & $signtool verify /pa /v $exe
+    if ($LASTEXITCODE -ne 0) { throw "Signature verification failed." }
+    Write-Host "    Signed and verified OK" -ForegroundColor Green
 } else {
     Write-Host "`n==> Skipping signing (-SkipSign)" -ForegroundColor Yellow
 }
