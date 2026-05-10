@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -21,15 +22,17 @@ namespace KillerPDF
 {
     public partial class MainWindow : Window
     {
+        public static readonly RoutedUICommand ZoomInRoutedCommand = new("Zoom In", "ZoomIn", typeof(MainWindow));
+        public static readonly RoutedUICommand ZoomOutRoutedCommand = new("Zoom Out", "ZoomOut", typeof(MainWindow));
+        public static readonly RoutedUICommand ZoomResetRoutedCommand = new("Reset Zoom", "ZoomReset", typeof(MainWindow));
+
+        private const int BaseRenderDimension = 1536;
+
+        public ZoomViewModel Zoom { get; } = new();
+
         private PdfDocument? _doc;
         private string? _currentFile;
         private Point _dragStartPoint;
-
-        // Zoom
-        private double _zoomLevel = 1.0;
-        private const double ZoomMin = 0.25;
-        private const double ZoomMax = 5.0;
-        private const double ZoomStep = 0.15;
 
         // Editing
         private EditTool _currentTool = EditTool.Select;
@@ -104,10 +107,16 @@ namespace KillerPDF
             _saveAsBtnRef = (Button)FindName("SaveAsBtn")!;
             _closeFileBtnRef = (Button)FindName("CloseFileBtn")!;
             _zoomBox = (ComboBox)FindName("ZoomBox")!;
+            Zoom.SetZoomLevel(Properties.Settings.Default.LastZoomLevel);
+            Zoom.PropertyChanged += Zoom_PropertyChanged;
+            CommandBindings.Add(new CommandBinding(ZoomInRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.In)));
+            CommandBindings.Add(new CommandBinding(ZoomOutRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.Out)));
+            CommandBindings.Add(new CommandBinding(ZoomResetRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.Reset)));
             LoadSignatures();
             BuildContextMenu();
             SetTool(EditTool.Select);
             SourceInitialized += MainWindow_SourceInitialized;
+            DpiChanged += (_, _) => ApplyZoom();
 
             // Open a file passed via command-line / file association (e.g. double-clicking a .pdf)
             Loaded += (_, _) =>
@@ -478,10 +487,16 @@ namespace KillerPDF
 
         private void RenderPage(int pageIndex)
         {
+            RenderPage(pageIndex, GetRenderScale());
+        }
+
+        private void RenderPage(int pageIndex, double renderScale)
+        {
             if (_currentFile is null || _doc is null) return;
             try
             {
-                using var docReader = DocLib.Instance.GetDocReader(_currentFile, new PageDimensions(1536, 1536));
+                int renderDimension = Math.Max(256, (int)Math.Round(BaseRenderDimension * renderScale));
+                using var docReader = DocLib.Instance.GetDocReader(_currentFile, new PageDimensions(renderDimension, renderDimension));
                 using var pageReader = docReader.GetPageReader(pageIndex);
 
                 int width = pageReader.GetPageWidth();
@@ -495,17 +510,31 @@ namespace KillerPDF
                     return;
                 }
 
-                _renderDims[pageIndex] = (width, height);
+                double logicalWidth;
+                double logicalHeight;
+                if (_renderDims.TryGetValue(pageIndex, out var logicalDims) && logicalDims.w > 0 && logicalDims.h > 0)
+                {
+                    logicalWidth = logicalDims.w;
+                    logicalHeight = logicalDims.h;
+                }
+                else
+                {
+                    logicalWidth = width / renderScale;
+                    logicalHeight = height / renderScale;
+                    _renderDims[pageIndex] = ((int)Math.Round(logicalWidth), (int)Math.Round(logicalHeight));
+                }
 
                 var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
                 bitmap.WritePixels(new Int32Rect(0, 0, width, height), rawBytes, width * 4, 0);
 
                 PageImage.Source = bitmap;
-                _annotationCanvas.Width = width;
-                _annotationCanvas.Height = height;
+                PageImage.Width = logicalWidth;
+                PageImage.Height = logicalHeight;
+                _annotationCanvas.Width = logicalWidth;
+                _annotationCanvas.Height = logicalHeight;
                 ClearSelection();
                 RenderAllAnnotations(pageIndex);
-                SetStatus($"Page {pageIndex + 1} of {_doc.PageCount}");
+                SetStatus($"Page {pageIndex + 1} of {_doc.PageCount} - {Zoom.DisplayText}");
             }
             catch (Exception ex)
             {
@@ -515,6 +544,20 @@ namespace KillerPDF
         }
 
         private void SetStatus(string text) => StatusText.Text = text;
+
+        private double GetRenderScale()
+        {
+            double dpiScale = 1.0;
+            if (_pageContentGrid is not null)
+            {
+                var dpi = VisualTreeHelper.GetDpi(_pageContentGrid);
+                dpiScale = Math.Max(dpi.DpiScaleX, dpi.DpiScaleY);
+            }
+
+            return dpiScale * Zoom.ZoomLevel;
+        }
+
+
 
         // ============================================================
         // Tool selection
@@ -3148,17 +3191,20 @@ namespace KillerPDF
         // Zoom
         // ============================================================
 
+        private enum ZoomChange
+        {
+            In,
+            Out,
+            Reset
+        }
+
         private void PagePreview_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (Keyboard.Modifiers == ModifierKeys.Control)
             {
                 e.Handled = true;
-                _zoomLevel = e.Delta > 0
-                    ? Math.Min(ZoomMax, _zoomLevel + ZoomStep)
-                    : Math.Max(ZoomMin, _zoomLevel - ZoomStep);
-                ApplyZoom();
-                SyncZoomBox();
-                SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc?.PageCount} - {_zoomLevel * 100:F0}%");
+                if (e.Delta > 0) Zoom.ZoomIn();
+                else Zoom.ZoomOut();
                 return;
             }
 
@@ -3186,58 +3232,68 @@ namespace KillerPDF
             }
         }
 
+        private void Zoom_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ZoomViewModel.ZoomLevel))
+                ApplyZoom();
+        }
+
+        private void ChangeZoomByCommand(ZoomChange change)
+        {
+            switch (change)
+            {
+                case ZoomChange.In:
+                    Zoom.ZoomIn();
+                    break;
+                case ZoomChange.Out:
+                    Zoom.ZoomOut();
+                    break;
+                case ZoomChange.Reset:
+                    Zoom.Reset();
+                    break;
+            }
+        }
+
+        private void ZoomIn_Click(object sender, RoutedEventArgs e) => Zoom.ZoomIn();
+
+        private void ZoomOut_Click(object sender, RoutedEventArgs e) => Zoom.ZoomOut();
+
+        private void ResetZoom_Click(object sender, RoutedEventArgs e) => Zoom.Reset();
+
         private void ApplyZoom()
         {
             if (_pageContentGrid.LayoutTransform is ScaleTransform st)
             {
-                st.ScaleX = _zoomLevel;
-                st.ScaleY = _zoomLevel;
+                st.ScaleX = Zoom.ZoomLevel;
+                st.ScaleY = Zoom.ZoomLevel;
             }
+
+            CommitActiveTextBox();
+            SaveZoomSetting();
+
+            if (PageList.SelectedIndex >= 0 && _doc != null)
+                RenderPage(PageList.SelectedIndex, GetRenderScale());
         }
 
-        private void ResetZoom()
+        private void SaveZoomSetting()
         {
-            _zoomLevel = 1.0;
-            ApplyZoom();
-        }
-
-        private void SyncZoomBox()
-        {
-            if (_zoomBox is null) return;
-            string target = $"{_zoomLevel * 100:F0}%";
-            _zoomBox.SelectionChanged -= ZoomBox_SelectionChanged;
-            foreach (ComboBoxItem item in _zoomBox.Items)
+            try
             {
-                if (item.Content?.ToString() == target)
-                {
-                    _zoomBox.SelectedItem = item;
-                    _zoomBox.SelectionChanged += ZoomBox_SelectionChanged;
-                    return;
-                }
+                Properties.Settings.Default.LastZoomLevel = Zoom.ZoomLevel;
+                Properties.Settings.Default.Save();
             }
-            // No preset match — clear dropdown selection and show free-form percentage
-            _zoomBox.SelectedItem = null;
-            _zoomBox.Text = target;
-            _zoomBox.SelectionChanged += ZoomBox_SelectionChanged;
+            catch
+            {
+                // Non-critical user preference; rendering should continue even if settings cannot be saved.
+            }
         }
 
         private void ZoomBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_zoomBox?.SelectedItem is not ComboBoxItem item) return;
-            string? tag = item.Tag?.ToString();
-            if (tag is null) return;
-
-            if (tag == "fitwidth") { FitToWidth(); return; }
-            if (tag == "fitpage")  { FitToPage();  return; }
-
-            if (double.TryParse(tag, System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out double z))
-            {
-                _zoomLevel = Math.Max(ZoomMin, Math.Min(ZoomMax, z));
-                ApplyZoom();
-                if (PageList.SelectedIndex >= 0 && _doc != null)
-                    SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc.PageCount} - {_zoomLevel * 100:F0}%");
-            }
+            if (_zoomBox?.SelectedItem is not ZoomLevelOption option) return;
+            if (option.IsFitWidth) { FitToWidth(); return; }
+            if (option.IsFitPage) { FitToPage(); return; }
+            if (option.ZoomLevel is double zoom) Zoom.SetZoomLevel(zoom);
         }
 
         private void FitToWidth()
@@ -3245,23 +3301,24 @@ namespace KillerPDF
             if (PageImage.Source is null || PageImage.ActualWidth <= 0) return;
             double viewW = PagePreviewPanel.ActualWidth - 40;
             if (viewW <= 0) return;
-            _zoomLevel = Math.Max(ZoomMin, Math.Min(ZoomMax, viewW / PageImage.ActualWidth));
-            ApplyZoom();
-            if (PageList.SelectedIndex >= 0 && _doc != null)
-                SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc.PageCount} - Fit Width ({_zoomLevel * 100:F0}%)");
+            Zoom.SetZoomLevel(viewW / PageImage.ActualWidth);
         }
 
         private void FitToPage()
         {
             if (PageImage.Source is null || PageImage.ActualWidth <= 0 || PageImage.ActualHeight <= 0) return;
-            double viewW = PagePreviewPanel.ActualWidth  - 40;
+            double viewW = PagePreviewPanel.ActualWidth - 40;
             double viewH = PagePreviewPanel.ActualHeight - 40;
             if (viewW <= 0 || viewH <= 0) return;
-            _zoomLevel = Math.Max(ZoomMin, Math.Min(ZoomMax,
-                Math.Min(viewW / PageImage.ActualWidth, viewH / PageImage.ActualHeight)));
-            ApplyZoom();
-            if (PageList.SelectedIndex >= 0 && _doc != null)
-                SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc.PageCount} - Fit Page ({_zoomLevel * 100:F0}%)");
+            Zoom.SetZoomLevel(Math.Min(viewW / PageImage.ActualWidth, viewH / PageImage.ActualHeight));
+        }
+
+        private void PageContentGrid_ManipulationDelta(object sender, ManipulationDeltaEventArgs e)
+        {
+            double scale = (e.DeltaManipulation.Scale.X + e.DeltaManipulation.Scale.Y) / 2.0;
+            if (Math.Abs(scale - 1.0) < 0.01) return;
+            Zoom.SetZoomLevel(Zoom.ZoomLevel * scale);
+            e.Handled = true;
         }
 
         // ============================================================
@@ -3347,7 +3404,6 @@ namespace KillerPDF
                 ClearSelection();
                 ClearTextSelection();
                 RenderPage(PageList.SelectedIndex);
-                ApplyZoom();
                 // Re-highlight search results on this page if a search is active
                 if (_searchBar is not null && _searchBar.Visibility == Visibility.Visible
                     && _allSearchRects.Count > 0)
