@@ -49,13 +49,12 @@ namespace KillerPDF
 
         protected override void OnStartup(StartupEventArgs e)
         {
-            CrashReporter.RegisterGlobalHandlers();
             DispatcherUnhandledException += OnDispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
             TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
             base.OnStartup(e);
-            ThemeManager.Initialize(ParseThemeSetting(Properties.Settings.Default.Theme));
+            ThemeManager.Initialize(ParseThemeSetting(KillerPDF.Properties.Settings.Default.Theme));
 
             // Prevent WPF from auto-shutting down when the launcher dialog closes
             // (OnLastWindowClose fires between dialog close and MainWindow.Show).

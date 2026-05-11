@@ -111,7 +111,7 @@ namespace KillerPDF
         private Border _customTitleBar = null!;
         private RowDefinition _titleBarRow = null!;
 
-        private readonly bool _useNativeWindowFrame = Properties.Settings.Default.UseNativeWindowFrame;
+        private readonly bool _useNativeWindowFrame = KillerPDF.Properties.Settings.Default.UseNativeWindowFrame;
         private HwndSource? _hwndSource;
 
         // Dirty / unsaved-change tracking
@@ -145,7 +145,7 @@ namespace KillerPDF
             _titleBarRow = (RowDefinition)FindName("TitleBarRow")!;
             ApplyCustomChromeVisibility();
             ThemeManager.ThemeChanged += ThemeManager_ThemeChanged;
-            Zoom.SetZoomLevel(Properties.Settings.Default.LastZoomLevel);
+            Zoom.SetZoomLevel(KillerPDF.Properties.Settings.Default.LastZoomLevel);
             Zoom.PropertyChanged += Zoom_PropertyChanged;
             CommandBindings.Add(new CommandBinding(ZoomInRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.In)));
             CommandBindings.Add(new CommandBinding(ZoomOutRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.Out)));
@@ -449,7 +449,7 @@ namespace KillerPDF
                 Margin = new Thickness(0, 0, 0, 8)
             });
 
-            var current = ParseThemeSetting(Properties.Settings.Default.Theme);
+            var current = ParseThemeSetting(KillerPDF.Properties.Settings.Default.Theme);
             foreach (var theme in new[] { Theme.Light, Theme.Dark, Theme.System })
             {
                 var radio = new RadioButton
@@ -463,8 +463,8 @@ namespace KillerPDF
                 radio.Checked += (_, _) =>
                 {
                     var selected = (Theme)radio.Tag;
-                    Properties.Settings.Default.Theme = selected.ToString();
-                    Properties.Settings.Default.Save();
+                    KillerPDF.Properties.Settings.Default.Theme = selected.ToString();
+                    KillerPDF.Properties.Settings.Default.Save();
                     ThemeManager.Apply(selected);
                     SetStatus($"Theme set to {radio.Content}");
                 };
@@ -476,7 +476,7 @@ namespace KillerPDF
             var nativeFrame = new CheckBox
             {
                 Content = "Use native window frame (requires restart)",
-                IsChecked = Properties.Settings.Default.UseNativeWindowFrame,
+                IsChecked = KillerPDF.Properties.Settings.Default.UseNativeWindowFrame,
                 Foreground = BrushResource("TextPrimary"),
                 Margin = new Thickness(0, 0, 0, 12)
             };
@@ -513,11 +513,11 @@ namespace KillerPDF
                 return;
 
             bool requested = cb.IsChecked == true;
-            if (Properties.Settings.Default.UseNativeWindowFrame == requested)
+            if (KillerPDF.Properties.Settings.Default.UseNativeWindowFrame == requested)
                 return;
 
-            Properties.Settings.Default.UseNativeWindowFrame = requested;
-            Properties.Settings.Default.Save();
+            KillerPDF.Properties.Settings.Default.UseNativeWindowFrame = requested;
+            KillerPDF.Properties.Settings.Default.Save();
             KillerDialog.Show(this,
                 "Restart required for the native window frame setting to take effect.",
                 "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -4123,8 +4123,8 @@ namespace KillerPDF
         {
             try
             {
-                Properties.Settings.Default.LastZoomLevel = Zoom.ZoomLevel;
-                Properties.Settings.Default.Save();
+                KillerPDF.Properties.Settings.Default.LastZoomLevel = Zoom.ZoomLevel;
+                KillerPDF.Properties.Settings.Default.Save();
             }
             catch
             {
