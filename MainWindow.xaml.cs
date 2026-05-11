@@ -4107,6 +4107,13 @@ namespace KillerPDF
         private static readonly System.Windows.Media.Color _greenHov  = System.Windows.Media.Color.FromRgb(0x2d, 0x6a, 0x4f);
         private static readonly System.Windows.Media.Color _hover     = System.Windows.Media.Color.FromRgb(0x2e, 0x2e, 0x2e);
 
+        private static SolidColorBrush FrozenSolidColorBrush(System.Windows.Media.Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            if (brush.CanFreeze) brush.Freeze();
+            return brush;
+        }
+
         public static MessageBoxResult Show(
             Window? owner,
             string message,
