@@ -3,27 +3,8 @@ name: CodeQL
 # CodeQL analysis for KillerPDF.
 #
 # Required by the doodlemania2/KillerPDF main-branch ruleset (must report
-# results before merge).
-#
-# Current state (pre-#2): project is net48 + WPF. CodeQL's csharp analyzer
-# needs to *build* the project to extract IR, so this runs on windows-latest
-# (same reasoning as build.yml).
-#
-# Migration plan: when #2 (modernize to net9.0-windows) merges, swap:
-#
-#   runs-on: windows-latest
-#
-# to:
-#
-#   runs-on: tdp-extend
-#
-# and update the build step to:
-#
-#   - run: dotnet build KillerPDF.csproj -c Release -p:EnableWindowsTargeting=true
-#
-# The tdp-extend runner image pre-bakes the CodeQL bundle at
-# /opt/codeql-bundle.tar.gz — opt in by adding `tools: /opt/codeql-bundle.tar.gz`
-# to the init step at that point to skip the ~60s bundle download per run.
+# results before merge). Runs on the in-cluster ARC runner; net9.0-windows
+# cross-targeting from Linux requires EnableWindowsTargeting=true.
 
 on:
   push:
@@ -45,7 +26,7 @@ concurrency:
 jobs:
   analyze:
     name: Analyze (csharp)
-    runs-on: windows-latest
+    runs-on: killerpdf
 
     steps:
       - uses: actions/checkout@v4
@@ -65,10 +46,10 @@ jobs:
           build-mode: manual
 
       - name: Restore
-        run: dotnet restore KillerPDF.csproj
+        run: dotnet restore KillerPDF.csproj -p:EnableWindowsTargeting=true
 
       - name: Build (Release, x64)
-        run: dotnet build KillerPDF.csproj -c Release -p:Platform=x64 --no-restore
+        run: dotnet build KillerPDF.csproj -c Release -p:Platform=x64 -p:EnableWindowsTargeting=true --no-restore
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

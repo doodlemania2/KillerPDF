@@ -34,7 +34,7 @@ Part of [killertools.net](https://killertools.net).
 ## Requirements
 
 - Windows 10 or 11 (x64)
-- No runtime install. Everything needed is inside the EXE (targets .NET Framework 4.8, which ships with every supported Windows release).
+- No runtime install. Everything needed is inside the self-contained single-file EXE.
 
 ## Download
 
@@ -46,12 +46,12 @@ Part of [killertools.net](https://killertools.net).
 ```powershell
 git clone https://github.com/SteveTheKiller/KillerPDF.git
 cd KillerPDF
-dotnet publish -c Release
+dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true
 ```
 
-Output lands in `bin/Release/net48/publish/`. The publish step produces a single Costura-bundled `KillerPDF.exe` plus a versioned `KillerPDF-<version>-src.zip` for GPL3 source distribution.
+Output lands in `bin/Release/net9.0-windows/win-x64/publish/`. The publish step produces a self-contained single-file `KillerPDF.exe` plus a versioned `KillerPDF-<version>-src.zip` for GPL3 source distribution.
 
-Requires the .NET 8 SDK or later to build (even though the output targets .NET Framework 4.8).
+Requires Windows and the .NET 9 SDK to build.
 
 ## Changelog
 
