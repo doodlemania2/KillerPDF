@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Windows;
+using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
 
@@ -58,7 +59,7 @@ namespace KillerPDF
             if (right - left < 1 || top - bottom < 1)
                 throw new InvalidOperationException("Crop rectangle is outside the page bounds.");
 
-            page.CropBox = new PdfRectangle(left, bottom, right, top);
+            page.CropBox = new PdfRectangle(new XPoint(left, bottom), new XPoint(right, top));
         }
 
         private static string CreateOutputPath(string sourcePath)
