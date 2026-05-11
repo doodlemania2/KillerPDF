@@ -1,0 +1,62 @@
+name: CodeQL
+
+# CodeQL analysis for KillerPDF.
+#
+# Required by the doodlemania2/KillerPDF main-branch ruleset (must report
+# results before merge). Runs on the in-cluster ARC runner; net9.0-windows
+# cross-targeting from Linux requires EnableWindowsTargeting=true.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (csharp)
+    runs-on: killerpdf
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          build-mode: manual
+
+      - name: Restore
+        run: dotnet restore KillerPDF.csproj -p:EnableWindowsTargeting=true
+
+      - name: Build (Release, x64)
+        run: dotnet build KillerPDF.csproj -c Release -p:Platform=x64 -p:EnableWindowsTargeting=true --no-restore
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:csharp"

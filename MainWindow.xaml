@@ -3,35 +3,58 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:KillerPDF"
         mc:Ignorable="d"
         Title="KillerPDF" Height="700" Width="1000"
         WindowStartupLocation="CenterScreen"
-        WindowStyle="None"
-        AllowsTransparency="True"
         ResizeMode="CanResizeWithGrip"
-        Background="#1a1a1a">
+        Background="{DynamicResource BgDark}"
+        KeyboardNavigation.TabNavigation="Continue"
+        KeyboardNavigation.ControlTabNavigation="Continue">
+
+    <Window.CommandBindings>
+        <CommandBinding Command="{x:Static ApplicationCommands.Open}" Executed="OpenCommand_Executed"/>
+        <CommandBinding Command="{x:Static ApplicationCommands.Save}" Executed="SaveCommand_Executed"/>
+        <CommandBinding Command="{x:Static ApplicationCommands.Print}" Executed="PrintCommand_Executed"/>
+        <CommandBinding Command="{x:Static ApplicationCommands.Find}" Executed="FindCommand_Executed"/>
+    </Window.CommandBindings>
+
+    <Window.InputBindings>
+        <KeyBinding Key="O" Modifiers="Control" Command="{x:Static ApplicationCommands.Open}"/>
+        <KeyBinding Key="S" Modifiers="Control" Command="{x:Static ApplicationCommands.Save}"/>
+        <KeyBinding Key="P" Modifiers="Control" Command="{x:Static ApplicationCommands.Print}"/>
+        <KeyBinding Key="F" Modifiers="Control" Command="{x:Static ApplicationCommands.Find}"/>
+        <KeyBinding Key="D0" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomResetRoutedCommand}"/>
+        <KeyBinding Key="OemPlus" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomInRoutedCommand}"/>
+        <KeyBinding Key="Add" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomInRoutedCommand}"/>
+        <KeyBinding Key="OemMinus" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomOutRoutedCommand}"/>
+        <KeyBinding Key="Subtract" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomOutRoutedCommand}"/>
+    </Window.InputBindings>
 
     <Window.Resources>
-        <!-- Killer Tools dark/green theme -->
-        <SolidColorBrush x:Key="BgDark" Color="#1a1a1a"/>
-        <SolidColorBrush x:Key="BgPanel" Color="#242424"/>
-        <SolidColorBrush x:Key="BgHover" Color="#2e2e2e"/>
-        <SolidColorBrush x:Key="BorderDim" Color="#333333"/>
-        <SolidColorBrush x:Key="AccentGreen" Color="#4ade80"/>
-        <SolidColorBrush x:Key="AccentGreenDim" Color="#22543d"/>
-        <SolidColorBrush x:Key="TextPrimary" Color="#e0e0e0"/>
-        <SolidColorBrush x:Key="TextSecondary" Color="#888888"/>
-        <SolidColorBrush x:Key="DangerRed" Color="#ef4444"/>
+        <!-- Theme brushes are supplied by Services.ThemeManager from Themes/*.xaml. -->
+
+        <Style x:Key="VisibleFocusVisual" TargetType="Control">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Control">
+                        <Rectangle Margin="1" Stroke="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"
+                                   StrokeThickness="2" StrokeDashArray="2 1" SnapsToDevicePixels="True"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <!-- Toolbar button -->
         <Style x:Key="ToolbarButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="10,6"/>
             <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusVisual}"/>
             <Setter Property="Width" Value="36"/>
             <Setter Property="Height" Value="32"/>
             <Setter Property="Template">
@@ -47,7 +70,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4"/>
@@ -58,20 +81,21 @@
             </Setter>
         </Style>
         <Style x:Key="ToolbarButtonAccent" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
-            <Setter Property="Foreground" Value="{StaticResource AccentGreen}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentGreen}"/>
         </Style>
         <Style x:Key="ToolbarButtonDanger" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
-            <Setter Property="Foreground" Value="{StaticResource DangerRed}"/>
+            <Setter Property="Foreground" Value="{DynamicResource DangerRed}"/>
         </Style>
 
         <Style x:Key="ChromeButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Width" Value="46"/>
             <Setter Property="Height" Value="36"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -80,7 +104,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -88,7 +112,7 @@
             </Setter>
         </Style>
         <Style x:Key="ChromeCloseButton" TargetType="Button" BasedOn="{StaticResource ChromeButton}">
-            <Setter Property="Foreground" Value="{StaticResource DangerRed}"/>
+            <Setter Property="Foreground" Value="{DynamicResource DangerRed}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -97,7 +121,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource DangerRed}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource DangerRed}"/>
                                 <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -124,12 +148,12 @@
                                                     <Setter.Value>
                                                         <ControlTemplate TargetType="Thumb">
                                                             <Border x:Name="thumbBorder"
-                                                                    Background="#554ade80"
+                                                                    Background="{DynamicResource AccentGreenDim}"
                                                                     CornerRadius="3"
                                                                     Margin="1,0"/>
                                                             <ControlTemplate.Triggers>
                                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                                    <Setter TargetName="thumbBorder" Property="Background" Value="{StaticResource AccentGreen}"/>
+                                                                    <Setter TargetName="thumbBorder" Property="Background" Value="{DynamicResource AccentGreen}"/>
                                                                 </Trigger>
                                                             </ControlTemplate.Triggers>
                                                         </ControlTemplate>
@@ -155,10 +179,10 @@
 
         <!-- Dark context menu -->
         <Style TargetType="ContextMenu">
-            <Setter Property="Background" Value="{StaticResource BgPanel}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderDim}"/>
+            <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDim}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="HasDropShadow" Value="True"/>
@@ -177,7 +201,7 @@
         </Style>
         <Style TargetType="MenuItem">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="Padding" Value="20,6,40,6"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="FontSize" Value="12"/>
@@ -193,13 +217,13 @@
                                 </Grid.ColumnDefinitions>
                                 <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="1" Text="{TemplateBinding InputGestureText}"
-                                           Foreground="{StaticResource TextSecondary}" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondary}" FontSize="11"
                                            VerticalAlignment="Center" Margin="24,0,0,0"/>
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="MenuBd" Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter TargetName="MenuBd" Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -207,7 +231,7 @@
             </Setter>
         </Style>
         <Style TargetType="Separator">
-            <Setter Property="Background" Value="{StaticResource BorderDim}"/>
+            <Setter Property="Background" Value="{DynamicResource BorderDim}"/>
             <Setter Property="Height" Value="1"/>
             <Setter Property="Margin" Value="4,4"/>
         </Style>
@@ -236,11 +260,12 @@
         <Style x:Key="DarkComboItem" TargetType="ComboBoxItem">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="Padding" Value="8,5"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBoxItem">
@@ -251,12 +276,12 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="ItemBd" Property="Background" Value="{StaticResource AccentGreenDim}"/>
-                                <Setter Property="Foreground" Value="{StaticResource AccentGreen}"/>
+                                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource AccentGreenDim}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentGreen}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="ItemBd" Property="Background" Value="{StaticResource AccentGreenDim}"/>
-                                <Setter Property="Foreground" Value="{StaticResource AccentGreen}"/>
+                                <Setter TargetName="ItemBd" Property="Background" Value="{DynamicResource AccentGreenDim}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentGreen}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -267,13 +292,14 @@
         <!-- The ComboBox itself -->
         <Style x:Key="DarkComboBox" TargetType="ComboBox">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
-            <Setter Property="Background" Value="{StaticResource BgPanel}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderDim}"/>
+            <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDim}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusVisual}"/>
             <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboItem}"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -305,7 +331,7 @@
                                              Margin="5,0,0,0"
                                              Background="Transparent"
                                              BorderThickness="0"
-                                             Foreground="{StaticResource TextPrimary}"
+                                             Foreground="{DynamicResource TextPrimary}"
                                              FontFamily="Consolas"
                                              FontSize="11"
                                              VerticalAlignment="Center"
@@ -317,7 +343,7 @@
                                                Text="&#xE70D;"
                                                FontFamily="Segoe MDL2 Assets"
                                                FontSize="8"
-                                               Foreground="{StaticResource TextSecondary}"
+                                               Foreground="{DynamicResource TextSecondary}"
                                                VerticalAlignment="Center"
                                                HorizontalAlignment="Center"
                                                IsHitTestVisible="False"/>
@@ -335,8 +361,8 @@
                                    Focusable="False"
                                    PopupAnimation="Fade"
                                    Placement="Bottom">
-                                <Border Background="{StaticResource BgPanel}"
-                                        BorderBrush="{StaticResource AccentGreenDim}"
+                                <Border Background="{DynamicResource BgPanel}"
+                                        BorderBrush="{DynamicResource AccentGreenDim}"
                                         BorderThickness="1"
                                         CornerRadius="3"
                                         Padding="2"
@@ -356,11 +382,11 @@
                                 <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentGreen}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentGreen}"/>
                             </Trigger>
                             <Trigger Property="IsDropDownOpen" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentGreen}"/>
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentGreen}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
@@ -373,17 +399,31 @@
 
         <!-- Page list styles -->
         <Style x:Key="PageListBox" TargetType="ListBox">
-            <Setter Property="Background" Value="{StaticResource BgPanel}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderDim}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDim}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+            <Setter Property="VirtualizingStackPanel.IsVirtualizing" Value="True"/>
+            <Setter Property="VirtualizingStackPanel.VirtualizationMode" Value="Recycling"/>
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <VirtualizingStackPanel/>
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusVisual}"/>
         </Style>
         <Style TargetType="ListBoxItem">
             <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusVisual}"/>
+            <Setter Property="AutomationProperties.Name" Value="{Binding}"/>
+            <Setter Property="AutomationProperties.HelpText" Value="PDF page item"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
@@ -396,11 +436,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgHover}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BgHover}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentGreenDim}"/>
-                                <Setter Property="Foreground" Value="{StaticResource AccentGreen}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentGreenDim}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentGreen}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -410,12 +450,13 @@
 
         <!-- General-purpose dark text button (use on non-icon buttons to bypass WPF default blue hover) -->
         <Style x:Key="DarkButton" TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource BgPanel}"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderDim}"/>
+            <Setter Property="Background" Value="{DynamicResource BgPanel}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderDim}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,6"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource VisibleFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -441,142 +482,151 @@
         </Style>
     </Window.Resources>
 
-    <Grid>
+    <Grid KeyboardNavigation.TabNavigation="Continue">
         <Grid.RowDefinitions>
-            <RowDefinition Height="36"/>
+            <RowDefinition x:Name="TitleBarRow" Height="36"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="28"/>
         </Grid.RowDefinitions>
 
         <!-- Title bar -->
-        <Border Grid.Row="0" Background="#111111" BorderBrush="{StaticResource BorderDim}" BorderThickness="0,0,0,1"
+        <Border x:Name="CustomTitleBar" Grid.Row="0" Background="{DynamicResource TitleBarBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,0,0,1"
                 MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
             <Grid>
+                <Grid x:Name="ChromeA11yLabels" Width="0" Height="0" IsHitTestVisible="False" Focusable="False" Opacity="0">
+                    <TextBlock x:Name="MinimizeButtonLabel" Text="Minimize window"/>
+                    <TextBlock x:Name="MaximizeButtonLabel" Text="Maximize or restore window"/>
+                    <TextBlock x:Name="CloseWindowButtonLabel" Text="Close window"/>
+                </Grid>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                    <TextBlock Text="Killer" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16" Foreground="{StaticResource TextPrimary}"/>
-                    <TextBlock Text="PDF" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16" Foreground="{StaticResource AccentGreen}"/>
+                    <TextBlock Text="Killer" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+                    <TextBlock Text="PDF" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16" Foreground="{DynamicResource AccentGreen}"/>
                     <TextBlock Text="" x:Name="FileNameLabel" VerticalAlignment="Center" Margin="16,0,0,0"
-                               Foreground="{StaticResource TextSecondary}" FontFamily="Consolas" FontSize="11"/>
+                               Foreground="{DynamicResource TextSecondary}" FontFamily="Consolas" FontSize="11"
+                               AutomationProperties.Name="Current file"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="&#x2015;" Click="MinimizeBtn_Click" Style="{StaticResource ChromeButton}"/>
-                    <Button Content="&#x25A1;" Click="MaximizeBtn_Click" Style="{StaticResource ChromeButton}"/>
-                    <Button Content="&#x2715;" Click="CloseBtn_Click" Style="{StaticResource ChromeCloseButton}"/>
+                    <Button Content="&#x2015;" Click="MinimizeBtn_Click" Style="{StaticResource ChromeButton}"
+                            KeyboardNavigation.TabIndex="0" AutomationProperties.Name="Minimize window"
+                            AutomationProperties.HelpText="Minimizes KillerPDF to the taskbar"
+                            AutomationProperties.LabeledBy="{Binding ElementName=MinimizeButtonLabel}"/>
+                    <Button Content="&#x25A1;" Click="MaximizeBtn_Click" Style="{StaticResource ChromeButton}"
+                            KeyboardNavigation.TabIndex="1" AutomationProperties.Name="Maximize or restore window"
+                            AutomationProperties.HelpText="Toggles between maximized and restored window size"
+                            AutomationProperties.LabeledBy="{Binding ElementName=MaximizeButtonLabel}"/>
+                    <Button Content="&#x2715;" Click="CloseBtn_Click" Style="{StaticResource ChromeCloseButton}"
+                            KeyboardNavigation.TabIndex="2" AutomationProperties.Name="Close window"
+                            AutomationProperties.HelpText="Closes KillerPDF"
+                            AutomationProperties.LabeledBy="{Binding ElementName=CloseWindowButtonLabel}"/>
                 </StackPanel>
             </Grid>
         </Border>
 
         <!-- Toolbar -->
-        <Border Grid.Row="1" Background="#111111" BorderBrush="{StaticResource BorderDim}" BorderThickness="0,0,0,1" Padding="4,2">
+        <Border Grid.Row="1" Background="{DynamicResource PanelBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,0,0,1" Padding="4,2"
+                KeyboardNavigation.TabNavigation="Continue">
             <Grid>
+                <Grid x:Name="ToolbarA11yLabels" Width="0" Height="0" IsHitTestVisible="False" Focusable="False" Opacity="0">
+                    <TextBlock x:Name="OpenButtonLabel" Text="Open"/><TextBlock x:Name="CloseFileButtonLabel" Text="Close file"/>
+                    <TextBlock x:Name="MergeButtonLabel" Text="Merge PDFs"/><TextBlock x:Name="SplitButtonLabel" Text="Extract pages"/>
+                    <TextBlock x:Name="DeleteButtonLabel" Text="Delete selected pages"/><TextBlock x:Name="MoveUpButtonLabel" Text="Move page up"/>
+                    <TextBlock x:Name="MoveDownButtonLabel" Text="Move page down"/><TextBlock x:Name="SaveAsButtonLabel" Text="Save as"/>
+                    <TextBlock x:Name="SaveFlattenedButtonLabel" Text="Save flattened PDF"/><TextBlock x:Name="PrintButtonLabel" Text="Print"/>
+                    <TextBlock x:Name="SelectToolButtonLabel" Text="Select tool"/><TextBlock x:Name="TextToolButtonLabel" Text="Text tool"/>
+                    <TextBlock x:Name="HighlightToolButtonLabel" Text="Highlight tool"/><TextBlock x:Name="DrawToolButtonLabel" Text="Draw tool"/>
+                    <TextBlock x:Name="SignatureButtonLabel" Text="Signature tool"/><TextBlock x:Name="CropToolButtonLabel" Text="Crop tool"/>
+                    <TextBlock x:Name="EditTextToolButtonLabel" Text="Edit existing text tool"/><TextBlock x:Name="EditImageToolButtonLabel" Text="Edit existing image tool"/>
+                    <TextBlock x:Name="UndoButtonLabel" Text="Undo last annotation"/><TextBlock x:Name="SettingsButtonLabel" Text="Settings"/>
+                    <TextBlock x:Name="ClearAnnotationsButtonLabel" Text="Clear annotations"/><TextBlock x:Name="ZoomLabel" Text="Zoom level"/>
+                </Grid>
                 <!-- File operations -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                    <Button Content="&#xE8DA;" Style="{StaticResource ToolbarButton}" Click="Open_Click" ToolTip="Open (Ctrl+O)"/>
-                    <Button x:Name="CloseFileBtn" Content="&#xE711;" Style="{StaticResource ToolbarButton}" Click="CloseFile_Click" ToolTip="Close File (Ctrl+W)" IsEnabled="False"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
-                    <Button Content="&#xE710;" Style="{StaticResource ToolbarButton}" Click="Merge_Click" ToolTip="Merge PDFs (combine additional PDFs into this one)"/>
-                    <Button Content="&#xE8B1;" Style="{StaticResource ToolbarButton}" Click="Split_Click" ToolTip="Extract Pages (save selected pages to a new PDF)"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
-                    <Button Content="&#xE8C6;" Style="{StaticResource ToolbarButton}" Click="Delete_Click" ToolTip="Delete Selected Pages"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
-                    <Button Content="&#xE74A;" Style="{StaticResource ToolbarButton}" Click="MoveUp_Click" ToolTip="Move Page Up (reorder)"/>
-                    <Button Content="&#xE74B;" Style="{StaticResource ToolbarButton}" Click="MoveDown_Click" ToolTip="Move Page Down (reorder)"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
-                    <Button x:Name="SaveAsBtn" Content="&#xE74E;" Style="{StaticResource ToolbarButtonAccent}" Click="SaveAs_Click" ToolTip="Save As"/>
-                    <Button Content="&#xE8B9;" Style="{StaticResource ToolbarButton}" Click="SaveFlattened_Click" ToolTip="Save Flattened PDF (rasterize all pages — fully uneditable)"/>
-                    <Button Content="&#xE749;" Style="{StaticResource ToolbarButton}" Click="Print_Click" ToolTip="Print (Ctrl+P)"/>
+                    <Button Content="&#xE8DA;" Style="{StaticResource ToolbarButton}" Click="Open_Click" ToolTip="Open (Ctrl+O, Alt+O)" KeyboardNavigation.TabIndex="3" AutomationProperties.Name="Open" AutomationProperties.HelpText="Open a PDF file. Shortcut Ctrl+O. Access key Alt+O." AutomationProperties.AccessKey="O" AutomationProperties.LabeledBy="{Binding ElementName=OpenButtonLabel}"/>
+                    <Button x:Name="CloseFileBtn" Content="&#xE711;" Style="{StaticResource ToolbarButton}" Click="CloseFile_Click" ToolTip="Close File (Ctrl+W, Alt+W)" IsEnabled="False" KeyboardNavigation.TabIndex="4" AutomationProperties.Name="Close file" AutomationProperties.HelpText="Close the current PDF and return to the start view. Shortcut Ctrl+W. Access key Alt+W." AutomationProperties.AccessKey="W" AutomationProperties.LabeledBy="{Binding ElementName=CloseFileButtonLabel}"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
+                    <Button Content="&#xE710;" Style="{StaticResource ToolbarButton}" Click="Merge_Click" ToolTip="Merge PDFs (Alt+M)" KeyboardNavigation.TabIndex="5" AutomationProperties.Name="Merge PDFs" AutomationProperties.HelpText="Combine additional PDFs into this document. Access key Alt+M." AutomationProperties.AccessKey="M" AutomationProperties.LabeledBy="{Binding ElementName=MergeButtonLabel}"/>
+                    <Button Content="&#xE8B1;" Style="{StaticResource ToolbarButton}" Click="Split_Click" ToolTip="Extract Pages (Alt+E)" KeyboardNavigation.TabIndex="6" AutomationProperties.Name="Extract pages" AutomationProperties.HelpText="Save selected pages to a new PDF. Access key Alt+E." AutomationProperties.AccessKey="E" AutomationProperties.LabeledBy="{Binding ElementName=SplitButtonLabel}"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
+                    <Button Content="&#xE8C6;" Style="{StaticResource ToolbarButton}" Click="Delete_Click" ToolTip="Delete Selected Pages (Alt+D)" KeyboardNavigation.TabIndex="7" AutomationProperties.Name="Delete selected pages" AutomationProperties.HelpText="Delete the selected pages from the current PDF. Access key Alt+D." AutomationProperties.AccessKey="D" AutomationProperties.LabeledBy="{Binding ElementName=DeleteButtonLabel}"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
+                    <Button Content="&#xE74A;" Style="{StaticResource ToolbarButton}" Click="MoveUp_Click" ToolTip="Move Page Up (Alt+U)" KeyboardNavigation.TabIndex="8" AutomationProperties.Name="Move page up" AutomationProperties.HelpText="Move the selected page earlier in the document. Access key Alt+U." AutomationProperties.AccessKey="U" AutomationProperties.LabeledBy="{Binding ElementName=MoveUpButtonLabel}"/>
+                    <Button Content="&#xE74B;" Style="{StaticResource ToolbarButton}" Click="MoveDown_Click" ToolTip="Move Page Down (Alt+N)" KeyboardNavigation.TabIndex="9" AutomationProperties.Name="Move page down" AutomationProperties.HelpText="Move the selected page later in the document. Access key Alt+N." AutomationProperties.AccessKey="N" AutomationProperties.LabeledBy="{Binding ElementName=MoveDownButtonLabel}"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
+                    <Button x:Name="SaveAsBtn" Content="&#xE74E;" Style="{StaticResource ToolbarButtonAccent}" Click="SaveAs_Click" ToolTip="Save As (Ctrl+S, Alt+S)" KeyboardNavigation.TabIndex="10" AutomationProperties.Name="Save as" AutomationProperties.HelpText="Save the PDF with annotations. Shortcut Ctrl+S. Access key Alt+S." AutomationProperties.AccessKey="S" AutomationProperties.LabeledBy="{Binding ElementName=SaveAsButtonLabel}"/>
+                    <Button Content="&#xE8B9;" Style="{StaticResource ToolbarButton}" Click="SaveFlattened_Click" ToolTip="Save Flattened PDF (Alt+F)" KeyboardNavigation.TabIndex="11" AutomationProperties.Name="Save flattened PDF" AutomationProperties.HelpText="Rasterize all pages and save a fully uneditable PDF. Access key Alt+F." AutomationProperties.AccessKey="F" AutomationProperties.LabeledBy="{Binding ElementName=SaveFlattenedButtonLabel}"/>
+                    <Button Content="&#xE749;" Style="{StaticResource ToolbarButton}" Click="Print_Click" ToolTip="Print (Ctrl+P, Alt+P)" KeyboardNavigation.TabIndex="12" AutomationProperties.Name="Print" AutomationProperties.HelpText="Print the current PDF. Shortcut Ctrl+P. Access key Alt+P." AutomationProperties.AccessKey="P" AutomationProperties.LabeledBy="{Binding ElementName=PrintButtonLabel}"/>
+                    <Button Content="&#xE713;" Style="{StaticResource ToolbarButton}" Click="Settings_Click" ToolTip="Settings" KeyboardNavigation.TabIndex="26" AutomationProperties.Name="Settings" AutomationProperties.HelpText="Open theme and window frame settings." AutomationProperties.LabeledBy="{Binding ElementName=SettingsButtonLabel}"/>
                 </StackPanel>
                 <!-- Edit tools + zoom -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="ToolSelectBtn" Content="&#xE8B3;" Style="{StaticResource ToolbarButton}" Click="ToolSelect_Click" ToolTip="Select Tool - click annotations, drag to select text, double-click to edit"/>
-                    <Button x:Name="ToolTextBtn" Content="&#xE8D2;" Style="{StaticResource ToolbarButton}" Click="ToolText_Click" ToolTip="Text Tool - click to add text"/>
-                    <Button x:Name="ToolHighlightBtn" Content="&#xED56;" Style="{StaticResource ToolbarButton}" Click="ToolHighlight_Click" ToolTip="Highlight Tool - drag to highlight"/>
-                    <Button x:Name="ToolDrawBtn" Content="&#xED63;" Style="{StaticResource ToolbarButton}" Click="ToolDraw_Click" ToolTip="Draw Tool - freehand ink"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
-                    <Button x:Name="ToolSignatureBtn" Content="&#xEE56;" Style="{StaticResource ToolbarButton}" Click="ToolSignature_Click" ToolTip="Signature - create and place signatures"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
-                    <Button Content="&#xE7A7;" Style="{StaticResource ToolbarButton}" Click="Undo_Click" ToolTip="Undo Last (Ctrl+Z)"/>
-                    <Button Content="&#xED62;" Style="{StaticResource ToolbarButtonDanger}" Click="ClearAnnotations_Click" ToolTip="Clear All Annotations"/>
-                    <Rectangle Width="1" Fill="{StaticResource BorderDim}" Margin="4,6"/>
-                    <ComboBox x:Name="ZoomBox" Width="96" Height="24" VerticalAlignment="Center"
-                              Margin="0,0,4,0"
-                              IsEditable="True" IsReadOnly="True"
-                              Style="{StaticResource DarkComboBox}"
-                              SelectionChanged="ZoomBox_SelectionChanged" ToolTip="Zoom level (Ctrl+scroll to zoom)">
-                        <ComboBoxItem Tag="fitwidth">Fit Width</ComboBoxItem>
-                        <ComboBoxItem Tag="fitpage">Fit Page</ComboBoxItem>
-                        <ComboBoxItem Tag="0.5">50%</ComboBoxItem>
-                        <ComboBoxItem Tag="0.75">75%</ComboBoxItem>
-                        <ComboBoxItem Tag="1.0" IsSelected="True">100%</ComboBoxItem>
-                        <ComboBoxItem Tag="1.25">125%</ComboBoxItem>
-                        <ComboBoxItem Tag="1.5">150%</ComboBoxItem>
-                        <ComboBoxItem Tag="2.0">200%</ComboBoxItem>
-                    </ComboBox>
+                    <Button x:Name="ToolSelectBtn" Content="&#xE8B3;" Style="{StaticResource ToolbarButton}" Click="ToolSelect_Click" ToolTip="Select Tool (Alt+Q)" KeyboardNavigation.TabIndex="13" AutomationProperties.Name="Select tool" AutomationProperties.HelpText="Select annotations, drag to select text, or double-click text to edit. Access key Alt+Q." AutomationProperties.AccessKey="Q" AutomationProperties.LabeledBy="{Binding ElementName=SelectToolButtonLabel}"/>
+                    <Button x:Name="ToolTextBtn" Content="&#xE8D2;" Style="{StaticResource ToolbarButton}" Click="ToolText_Click" ToolTip="Text Tool (Alt+T)" KeyboardNavigation.TabIndex="14" AutomationProperties.Name="Text tool" AutomationProperties.HelpText="Click the page to add text. Access key Alt+T." AutomationProperties.AccessKey="T" AutomationProperties.LabeledBy="{Binding ElementName=TextToolButtonLabel}"/>
+                    <Button x:Name="ToolEditTextBtn" Content="&#xE104;" Style="{StaticResource ToolbarButton}" Click="ToolEditText_Click" ToolTip="Edit Existing Text" KeyboardNavigation.TabIndex="15" AutomationProperties.Name="Edit existing text tool" AutomationProperties.HelpText="Click a PDF text run to white-out and redraw it." AutomationProperties.LabeledBy="{Binding ElementName=EditTextToolButtonLabel}"/>
+                    <Button x:Name="ToolEditImageBtn" Content="&#xEB9F;" Style="{StaticResource ToolbarButton}" Click="ToolEditImage_Click" ToolTip="Edit Existing Image" KeyboardNavigation.TabIndex="16" AutomationProperties.Name="Edit existing image tool" AutomationProperties.HelpText="Click a PDF image to replace, delete, or resize it." AutomationProperties.LabeledBy="{Binding ElementName=EditImageToolButtonLabel}"/>
+                    <Button x:Name="ToolHighlightBtn" Content="&#xED56;" Style="{StaticResource ToolbarButton}" Click="ToolHighlight_Click" ToolTip="Highlight Tool (Alt+H)" KeyboardNavigation.TabIndex="17" AutomationProperties.Name="Highlight tool" AutomationProperties.HelpText="Drag on the page to add a highlight. Access key Alt+H." AutomationProperties.AccessKey="H" AutomationProperties.LabeledBy="{Binding ElementName=HighlightToolButtonLabel}"/>
+                    <Button x:Name="ToolDrawBtn" Content="&#xED63;" Style="{StaticResource ToolbarButton}" Click="ToolDraw_Click" ToolTip="Draw Tool (Alt+R)" KeyboardNavigation.TabIndex="18" AutomationProperties.Name="Draw tool" AutomationProperties.HelpText="Draw freehand ink on the page. Access key Alt+R." AutomationProperties.AccessKey="R" AutomationProperties.LabeledBy="{Binding ElementName=DrawToolButtonLabel}"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
+                    <Button x:Name="ToolSignatureBtn" Content="&#xEE56;" Style="{StaticResource ToolbarButton}" Click="ToolSignature_Click" ToolTip="Signature (Alt+G)" KeyboardNavigation.TabIndex="19" AutomationProperties.Name="Signature tool" AutomationProperties.HelpText="Create and place signatures. Access key Alt+G." AutomationProperties.AccessKey="G" AutomationProperties.LabeledBy="{Binding ElementName=SignatureButtonLabel}"/>
+                    <Button x:Name="ToolCropBtn" Content="&#xE7A8;" Style="{StaticResource ToolbarButton}" Click="ToolCrop_Click" ToolTip="Crop pages (Alt+C)" KeyboardNavigation.TabIndex="20" AutomationProperties.Name="Crop tool" AutomationProperties.HelpText="Drag a rectangle on the page, then apply the crop. Access key Alt+C." AutomationProperties.AccessKey="C" AutomationProperties.LabeledBy="{Binding ElementName=CropToolButtonLabel}"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
+                    <Button Content="&#xE7A7;" Style="{StaticResource ToolbarButton}" Click="Undo_Click" ToolTip="Undo Last (Ctrl+Z, Alt+Z)" KeyboardNavigation.TabIndex="21" AutomationProperties.Name="Undo last annotation" AutomationProperties.HelpText="Undo the last annotation change. Shortcut Ctrl+Z. Access key Alt+Z." AutomationProperties.AccessKey="Z" AutomationProperties.LabeledBy="{Binding ElementName=UndoButtonLabel}"/>
+                    <Button Content="&#xED62;" Style="{StaticResource ToolbarButtonDanger}" Click="ClearAnnotations_Click" ToolTip="Clear All Annotations (Alt+L)" KeyboardNavigation.TabIndex="22" AutomationProperties.Name="Clear all annotations" AutomationProperties.HelpText="Clear all annotations on the current page. Access key Alt+L." AutomationProperties.AccessKey="L" AutomationProperties.LabeledBy="{Binding ElementName=ClearAnnotationsButtonLabel}"/>
+                    <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
+                    <Button Content="&#xE949;" Style="{StaticResource ToolbarButton}" Click="ZoomOut_Click" ToolTip="Zoom Out (Ctrl+-)" KeyboardNavigation.TabIndex="23" AutomationProperties.Name="Zoom out" AutomationProperties.HelpText="Decrease the page zoom level. Shortcut Control minus."/>
+                    <ComboBox x:Name="ZoomBox" Width="104" Height="24" VerticalAlignment="Center" Margin="0,0,4,0" IsEditable="True" IsReadOnly="True" Style="{StaticResource DarkComboBox}" KeyboardNavigation.TabIndex="24" AutomationProperties.Name="Zoom level" AutomationProperties.HelpText="Choose the page zoom level. Use Control plus mouse wheel to zoom." AutomationProperties.LabeledBy="{Binding ElementName=ZoomLabel}"
+                              ItemsSource="{Binding Zoom.AvailableLevels, RelativeSource={RelativeSource AncestorType=Window}}"
+                              DisplayMemberPath="DisplayText"
+                              SelectedItem="{Binding Zoom.SelectedLevel, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}"
+                              Text="{Binding Zoom.DisplayText, RelativeSource={RelativeSource AncestorType=Window}, Mode=OneWay}"
+                              SelectionChanged="ZoomBox_SelectionChanged" ToolTip="Zoom level (Ctrl+scroll to zoom)"/>
+                    <Button Content="&#xE948;" Style="{StaticResource ToolbarButton}" Click="ZoomIn_Click" ToolTip="Zoom In (Ctrl+=)" KeyboardNavigation.TabIndex="25" AutomationProperties.Name="Zoom in" AutomationProperties.HelpText="Increase the page zoom level. Shortcut Control plus."/>
                 </StackPanel>
             </Grid>
         </Border>
 
         <!-- Main content -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="2" KeyboardNavigation.TabNavigation="Continue">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="180" MinWidth="140" MaxWidth="260"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
             <!-- Sidebar -->
-            <Border Grid.Column="0" Background="#1e1e1e" BorderBrush="{StaticResource BorderDim}" BorderThickness="0,0,1,0">
+            <Border Grid.Column="0" Background="{DynamicResource SidebarBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,0,1,0">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="PAGES" Foreground="{StaticResource TextSecondary}"
-                               FontFamily="Segoe UI" FontSize="11" FontWeight="SemiBold" Padding="12,10"/>
-                    <ListBox x:Name="PageList" Style="{StaticResource PageListBox}"
-                             BorderThickness="0" SelectionMode="Extended"
-                             SelectionChanged="PageList_SelectionChanged"
-                             AllowDrop="True" Drop="PageList_Drop" DragOver="PageList_DragOver"
-                             PreviewMouseLeftButtonDown="PageList_PreviewMouseLeftButtonDown"
-                             PreviewMouseMove="PageList_PreviewMouseMove"/>
+                    <TextBlock x:Name="PagesHeader" DockPanel.Dock="Top" Text="PAGES" Foreground="{DynamicResource TextSecondary}" FontFamily="Segoe UI" FontSize="11" FontWeight="SemiBold" Padding="12,10"/>
+                    <ListBox x:Name="PageList" Style="{StaticResource PageListBox}" BorderThickness="0" SelectionMode="Extended" KeyboardNavigation.TabIndex="30" AutomationProperties.Name="Pages" AutomationProperties.HelpText="List of pages in the current PDF. Select pages to preview, reorder, extract, or delete." AutomationProperties.LabeledBy="{Binding ElementName=PagesHeader}" SelectionChanged="PageList_SelectionChanged" AllowDrop="True" Drop="PageList_Drop" DragOver="PageList_DragOver" PreviewMouseLeftButtonDown="PageList_PreviewMouseLeftButtonDown" PreviewMouseMove="PageList_PreviewMouseMove"/>
                 </DockPanel>
             </Border>
 
             <!-- Preview area -->
-            <Border Grid.Column="1" Background="{StaticResource BgDark}">
+            <Border Grid.Column="1" Background="{DynamicResource BgDark}">
                 <Grid>
+                    <TextBlock x:Name="DropZoneLabel" Text="Open PDF drop zone" Width="0" Height="0" Opacity="0" IsHitTestVisible="False" Focusable="False"/>
+                    <TextBlock x:Name="PagePreviewLabel" Text="PDF page preview" Width="0" Height="0" Opacity="0" IsHitTestVisible="False" Focusable="False"/>
+                    <TextBlock x:Name="AnnotationCanvasLabel" Text="PDF annotation canvas" Width="0" Height="0" Opacity="0" IsHitTestVisible="False" Focusable="False"/>
                     <!-- Drop zone -->
-                    <Border x:Name="DropZone" Background="Transparent"
-                            AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver"
-                            MouseLeftButtonDown="DropZone_Click">
-                        <Border BorderBrush="{StaticResource BorderDim}" BorderThickness="2"
-                                CornerRadius="8" Margin="40" Padding="40"
-                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Background="Transparent" Style="{x:Null}">
+                    <Border x:Name="DropZone" Background="Transparent" Focusable="True" KeyboardNavigation.TabIndex="40" AutomationProperties.Name="Open PDF drop zone" AutomationProperties.HelpText="Drop a PDF file here, or press Enter or Space to browse for a PDF." AutomationProperties.LabeledBy="{Binding ElementName=DropZoneLabel}" AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver" KeyDown="DropZone_KeyDown" MouseLeftButtonDown="DropZone_Click">
+                        <Border BorderBrush="{DynamicResource BorderDim}" BorderThickness="2" CornerRadius="8" Margin="40" Padding="40" HorizontalAlignment="Center" VerticalAlignment="Center" Background="Transparent" Style="{x:Null}">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <TextBlock Text="Drop PDF here" FontFamily="Segoe UI" FontSize="20"
-                                           Foreground="{StaticResource TextSecondary}" HorizontalAlignment="Center"/>
-                                <TextBlock Text="or click to browse" FontFamily="Segoe UI" FontSize="13"
-                                           Foreground="{StaticResource BorderDim}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                                <TextBlock Text="Drop PDF here" FontFamily="Segoe UI" FontSize="20" Foreground="{DynamicResource TextSecondary}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="or click to browse" FontFamily="Segoe UI" FontSize="13" Foreground="{DynamicResource BorderDim}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
                             </StackPanel>
                         </Border>
                     </Border>
 
                     <!-- PDF page with annotation overlay -->
-                    <ScrollViewer x:Name="PagePreviewPanel" Visibility="Collapsed"
-                                  HorizontalScrollBarVisibility="Auto"
-                                  VerticalScrollBarVisibility="Auto"
-                                  Background="Transparent"
-                                  PreviewMouseWheel="PagePreview_PreviewMouseWheel"
-                                  AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver">
+                    <ScrollViewer x:Name="PagePreviewPanel" Visibility="Collapsed" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="Transparent" Focusable="True" KeyboardNavigation.TabIndex="40" AutomationProperties.Name="PDF page preview" AutomationProperties.HelpText="Scrollable preview of the selected PDF page." AutomationProperties.LabeledBy="{Binding ElementName=PagePreviewLabel}" PreviewMouseWheel="PagePreview_PreviewMouseWheel" AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver">
                         <Border HorizontalAlignment="Center" VerticalAlignment="Top" Padding="16">
-                            <Grid x:Name="PageContentGrid">
+                            <Grid x:Name="PageContentGrid" IsManipulationEnabled="True" ManipulationDelta="PageContentGrid_ManipulationDelta">
                                 <Grid.LayoutTransform>
                                     <ScaleTransform ScaleX="1" ScaleY="1"/>
                                 </Grid.LayoutTransform>
                                 <Border Background="White">
                                     <Grid>
-                                        <Image x:Name="PageImage" RenderOptions.BitmapScalingMode="HighQuality" Stretch="None"/>
-                                        <Canvas x:Name="AnnotationCanvas" Background="Transparent" ClipToBounds="True"
-                                                PreviewMouseLeftButtonDown="Canvas_MouseLeftButtonDown"
-                                                MouseMove="Canvas_MouseMove"
-                                                PreviewMouseLeftButtonUp="Canvas_MouseLeftButtonUp"/>
+                                        <Image x:Name="PageImage" RenderOptions.BitmapScalingMode="HighQuality" Stretch="None" AutomationProperties.Name="Rendered PDF page"/>
+                                        <Canvas x:Name="AnnotationCanvas" Background="Transparent" ClipToBounds="True" Focusable="True" KeyboardNavigation.TabIndex="41" AutomationProperties.Name="PDF annotation canvas" AutomationProperties.HelpText="Use the selected tool to add, select, edit, or delete annotations on the current page." AutomationProperties.LabeledBy="{Binding ElementName=AnnotationCanvasLabel}" PreviewMouseLeftButtonDown="Canvas_MouseLeftButtonDown" MouseMove="Canvas_MouseMove" PreviewMouseLeftButtonUp="Canvas_MouseLeftButtonUp"/>
                                     </Grid>
                                 </Border>
                             </Grid>
@@ -587,21 +637,18 @@
         </Grid>
 
         <!-- Status bar -->
-        <Border Grid.Row="3" Background="#111111" BorderBrush="{StaticResource BorderDim}" BorderThickness="0,1,0,0">
-            <Grid Margin="16,0">
-                <TextBlock x:Name="StatusText" Text="Ready"
-                           Foreground="{StaticResource TextSecondary}"
-                           FontFamily="Segoe UI" FontSize="11" VerticalAlignment="Center"/>
+        <Border Grid.Row="3" Background="{DynamicResource StatusBarBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,1,0,0">
+            <Grid Margin="16,0" KeyboardNavigation.TabNavigation="Continue">
+                <TextBlock x:Name="StatusText" Text="Ready" Foreground="{DynamicResource TextSecondary}" FontFamily="Segoe UI" FontSize="11" VerticalAlignment="Center" AutomationProperties.Name="Status" AutomationProperties.HelpText="Current application status" AutomationProperties.LiveSetting="Polite"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <TextBlock x:Name="VersionLabel" Text="v1.2.1"
-                               Foreground="#444444" FontFamily="Consolas"
-                               FontSize="10" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <TextBlock FontSize="10" VerticalAlignment="Center"
-                               FontFamily="Consolas">
-                        <Run Text="&#x00A9; 2026 " Foreground="#444444"/>
-                        <Hyperlink NavigateUri="https://thekiller.net"
-                                   RequestNavigate="Hyperlink_RequestNavigate"
-                                   Foreground="#444444" TextDecorations="None">
+                    <Button x:Name="StatusZoomButton" Content="{Binding Zoom.DisplayText, RelativeSource={RelativeSource AncestorType=Window}}"
+                             Style="{StaticResource DarkButton}" Padding="6,2" Margin="0,0,12,0"
+                             FontFamily="Consolas" FontSize="10"
+                             Click="ResetZoom_Click" ToolTip="Reset zoom to 100% (Ctrl+0)" AutomationProperties.Name="Current zoom" AutomationProperties.HelpText="Reset zoom to 100 percent. Shortcut Control zero."/>
+                    <TextBlock x:Name="VersionLabel" Text="v1.2.1" Foreground="{DynamicResource TextMuted}" FontFamily="Consolas" FontSize="10" VerticalAlignment="Center" Margin="0,0,12,0" AutomationProperties.Name="Application version"/>
+                    <TextBlock FontSize="10" VerticalAlignment="Center" FontFamily="Consolas">
+                        <Run Text="&#x00A9; 2026 " Foreground="{DynamicResource TextMuted}"/>
+                        <Hyperlink NavigateUri="https://thekiller.net" RequestNavigate="Hyperlink_RequestNavigate" KeyboardNavigation.TabIndex="50" AutomationProperties.Name="Steve the Killer website" AutomationProperties.HelpText="Opens the Steve the Killer website" Foreground="{DynamicResource TextMuted}" TextDecorations="None">
                             <Run Text="Steve the Killer"/>
                         </Hyperlink>
                     </TextBlock>

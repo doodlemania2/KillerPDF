@@ -11,6 +11,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>Resources\kp-icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>1.3.0</Version>
     <AssemblyVersion>1.3.0.0</AssemblyVersion>
     <FileVersion>1.3.0.0</FileVersion>
@@ -27,11 +28,14 @@
     <PackageReference Include="PdfPig" Version="0.1.14" />
     <!-- Docnet.Core supplies pdfium.dll as a win-x64 native runtime asset; the SDK bundles it for single-file publish. -->
     <PackageReference Include="Docnet.Core" Version="2.6.0" />
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="9.0.0" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Printing" />
+    <Reference Include="ReachFramework" />
   </ItemGroup>
 
   <ItemGroup>

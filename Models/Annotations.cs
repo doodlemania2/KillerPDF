@@ -3,7 +3,7 @@ using System.Windows.Media;
 
 namespace KillerPDF
 {
-    public enum EditTool { Select, Text, Highlight, Draw, Signature }
+    public enum EditTool { Select, Text, Highlight, Draw, Signature, EditText, EditImage, Crop }
 
     public abstract class PageAnnotation
     {
@@ -43,6 +43,14 @@ namespace KillerPDF
     }
 
     /// <summary>
+    /// Transient crop rectangle used only as an on-canvas UI overlay while applying a crop.
+    /// </summary>
+    public class CropAnnotation : PageAnnotation
+    {
+        public Rect Bounds { get; set; }
+    }
+
+    /// <summary>
     /// Represents an edit to existing PDF text: whites out original bounds, draws replacement.
     /// </summary>
     public class TextEditAnnotation : PageAnnotation
@@ -53,6 +61,18 @@ namespace KillerPDF
         public string OriginalContent { get; set; } = "";
         public double FontSize { get; set; } = 14;
         public string FontName { get; set; } = "Segoe UI";
+    }
+
+    /// <summary>
+    /// Represents an edit to an existing PDF image: white-out original bounds, then optionally redraw.
+    /// </summary>
+    public class ImageEditAnnotation : PageAnnotation
+    {
+        public Rect OriginalBounds { get; set; }
+        public Rect TargetBounds { get; set; }
+        public string? OriginalImageData { get; set; }
+        public string? ReplacementImagePath { get; set; }
+        public bool IsDeleted { get; set; }
     }
 
     /// <summary>
