@@ -3,7 +3,7 @@ using System.Windows.Media;
 
 namespace KillerPDF
 {
-    public enum EditTool { Select, Text, Highlight, Draw, Signature, EditText, EditImage }
+    public enum EditTool { Select, Text, Highlight, Draw, Signature, EditText, EditImage, Crop }
 
     public abstract class PageAnnotation
     {
@@ -40,6 +40,14 @@ namespace KillerPDF
 
         public Color GetColor() => Color.FromArgb(ColorA, ColorR, ColorG, ColorB);
         public void SetColor(Color c) { ColorR = c.R; ColorG = c.G; ColorB = c.B; ColorA = c.A; }
+    }
+
+    /// <summary>
+    /// Transient crop rectangle used only as an on-canvas UI overlay while applying a crop.
+    /// </summary>
+    public class CropAnnotation : PageAnnotation
+    {
+        public Rect Bounds { get; set; }
     }
 
     /// <summary>
