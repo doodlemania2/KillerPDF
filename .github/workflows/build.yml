@@ -1,0 +1,74 @@
+name: build
+
+# CI for KillerPDF.
+#
+# Current state (pre-#43): project targets net48 + WPF + native pdfium.dll.
+# `dotnet build` and `dotnet publish` both work for SDK-style net48 on a
+# Windows host that has the .NET Framework 4.8 dev pack preinstalled — which
+# windows-latest does.
+#
+# Migration plan: once #43 (modernize to net9.0-windows) merges, swap
+# this job to:
+#
+#   jobs:
+#     build-wpf:
+#       runs-on: tdp-extend
+#       steps:
+#         - uses: actions/checkout@v4
+#         - run: dotnet build KillerPDF.csproj -c Release -p:EnableWindowsTargeting=true
+#
+# The tdp-extend Linux ARC scaleset has the .NET 9 SDK preinstalled and
+# builds net9.0-windows projects via EnableWindowsTargeting=true. Until
+# #43 lands, net48 needs the Windows-only msbuild/Reference Assemblies
+# stack which only windows-latest provides.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (windows-latest, net48)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # NuGet package cache. SDK-style restore writes to %UserProfile%\.nuget\packages.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: dotnet --info
+        run: dotnet --info
+
+      - name: Restore
+        run: dotnet restore KillerPDF.csproj
+
+      - name: Build (Release, x64)
+        run: dotnet build KillerPDF.csproj -c Release -p:Platform=x64 --no-restore
+
+      - name: Publish (Release, x64)
+        run: dotnet publish KillerPDF.csproj -c Release -p:Platform=x64 --no-build -o publish
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KillerPDF-${{ github.sha }}
+          path: publish/
+          if-no-files-found: error
+          retention-days: 7
