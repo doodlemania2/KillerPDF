@@ -42,6 +42,8 @@
 
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Printing" />
+    <Reference Include="ReachFramework" />
   </ItemGroup>
 
   <ItemGroup>
