@@ -3,11 +3,14 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Windows.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
+using KillerPDF.Diagnostics;
 
 namespace KillerPDF
 {
@@ -45,6 +48,10 @@ namespace KillerPDF
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            DispatcherUnhandledException += OnDispatcherUnhandledException;
+            AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
             base.OnStartup(e);
 
             // Prevent WPF from auto-shutting down when the launcher dialog closes
@@ -110,6 +117,35 @@ namespace KillerPDF
             // Hand shutdown responsibility back to the normal window-close behaviour
             ShutdownMode = ShutdownMode.OnLastWindowClose;
             new MainWindow().Show();
+        }
+
+        // ============================================================
+        // Crash handling
+        // ============================================================
+
+        private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+        {
+            var report = CrashReporter.Report(e.Exception, "UI thread");
+            bool shouldContinue = CrashDialog.ShowCrash(report);
+            e.Handled = report.Recoverable && shouldContinue;
+
+            if (!e.Handled)
+                Shutdown(1);
+        }
+
+        private void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            var exception = e.ExceptionObject as Exception
+                ?? new InvalidOperationException("A non-Exception object was thrown.");
+            var report = CrashReporter.Report(exception, "AppDomain unhandled exception");
+            CrashDialog.ShowCrash(report);
+        }
+
+        private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            var report = CrashReporter.Report(e.Exception, "Unobserved task exception");
+            CrashDialog.ShowCrash(report);
+            e.SetObserved();
         }
 
         // ============================================================
