@@ -337,7 +337,10 @@
                                              VerticalAlignment="Center"
                                              IsReadOnly="{TemplateBinding IsReadOnly}"
                                              Visibility="Hidden"
-                                             Focusable="True"/>
+                                             Focusable="True"
+                                             SelectionBrush="{StaticResource AccentGreenDim}"
+                                             SelectionTextBrush="{StaticResource AccentGreen}"
+                                             CaretBrush="{StaticResource AccentGreen}"/>
                                     <!-- Chevron arrow -->
                                     <TextBlock Grid.Column="1"
                                                Text="&#xE70D;"

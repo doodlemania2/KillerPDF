@@ -95,15 +95,17 @@ namespace KillerPDF
                 {
                     DoInstall(wantDesktop);
 
-                    // Offer to open Default Apps settings (Windows blocks silent default changes)
-                    var res = MessageBox.Show(
-                        "KillerPDF has been installed.\n\n" +
-                        "Would you like to set it as your default PDF viewer now?\n" +
-                        "(Opens Windows Settings → Default Apps)",
-                        AppName, MessageBoxButton.YesNo, MessageBoxImage.Information);
-                    if (res == MessageBoxResult.Yes)
-                        Process.Start(new ProcessStartInfo("ms-settings:defaultapps")
-                            { UseShellExecute = true });
+                    // Offer to open Default Apps settings only if KillerPDF isn't already the default
+                    if (!IsDefaultPdfHandler())
+                    {
+                        var res = KillerDialog.Show(null,
+                            "Would you like to set KillerPDF as your default PDF viewer?\n\n" +
+                            "Opens Windows Settings → Default Apps.",
+                            AppName, MessageBoxButton.YesNo);
+                        if (res == MessageBoxResult.Yes)
+                            Process.Start(new ProcessStartInfo("ms-settings:defaultapps")
+                                { UseShellExecute = true });
+                    }
 
                     // Relaunch from the installed location then exit this process
                     var psi = new ProcessStartInfo(InstallExe);
@@ -172,6 +174,14 @@ namespace KillerPDF
             using var key = Registry.CurrentUser.OpenSubKey(@"Software\KillerPDF");
             if (key is null) return false;
             return key.GetValue("Installed") is int i && i == 1;
+        }
+
+        private static bool IsDefaultPdfHandler()
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\Shell\Associations\FileAssociations\.pdf\UserChoice");
+            return key?.GetValue("ProgId") is string progId &&
+                   progId.Equals("KillerPDF.pdf", StringComparison.OrdinalIgnoreCase);
         }
 
         // ============================================================
