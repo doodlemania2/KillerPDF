@@ -1,0 +1,76 @@
+name: CodeQL
+
+# CodeQL analysis for KillerPDF.
+#
+# Required by the doodlemania2/KillerPDF main-branch ruleset (must report
+# results before merge).
+#
+# Current state (pre-#2): project is net48 + WPF. CodeQL's csharp analyzer
+# needs to *build* the project to extract IR, so this runs on windows-latest
+# (same reasoning as build.yml).
+#
+# Migration plan: when #2 (modernize to net9.0-windows) merges, swap:
+#
+#   runs-on: windows-latest
+#
+# to:
+#
+#   runs-on: tdp-extend
+#
+# and update the build step to:
+#
+#   - run: dotnet build KillerPDF.csproj -c Release -p:EnableWindowsTargeting=true
+#
+# The tdp-extend runner image pre-bakes the CodeQL bundle at
+# /opt/codeql-bundle.tar.gz — opt in by adding `tools: /opt/codeql-bundle.tar.gz`
+# to the init step at that point to skip the ~60s bundle download per run.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (csharp)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          build-mode: manual
+
+      - name: Restore
+        run: dotnet restore KillerPDF.csproj
+
+      - name: Build (Release, x64)
+        run: dotnet build KillerPDF.csproj -c Release -p:Platform=x64 --no-restore
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:csharp"

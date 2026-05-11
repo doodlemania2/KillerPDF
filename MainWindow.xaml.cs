@@ -1,8 +1,13 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.ExceptionServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -11,6 +16,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Docnet.Core;
 using Docnet.Core.Models;
+using KillerPDF.Services;
 using Microsoft.Win32;
 using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
@@ -21,27 +27,41 @@ namespace KillerPDF
 {
     public partial class MainWindow : Window
     {
+        public static readonly RoutedUICommand ZoomInRoutedCommand = new("Zoom In", "ZoomIn", typeof(MainWindow));
+        public static readonly RoutedUICommand ZoomOutRoutedCommand = new("Zoom Out", "ZoomOut", typeof(MainWindow));
+        public static readonly RoutedUICommand ZoomResetRoutedCommand = new("Reset Zoom", "ZoomReset", typeof(MainWindow));
+
+        public ZoomViewModel Zoom { get; } = new();
+
+        private readonly PdfDocumentService _pdfDocumentService = new();
+        private CancellationTokenSource? _openCancellationTokenSource;
+        private CancellationTokenSource? _renderCancellationTokenSource;
+        private int _busyDepth;
+        private bool _isFileOperationBusy;
         private PdfDocument? _doc;
         private string? _currentFile;
         private Point _dragStartPoint;
-
-        // Zoom
-        private double _zoomLevel = 1.0;
-        private const double ZoomMin = 0.25;
-        private const double ZoomMax = 5.0;
-        private const double ZoomStep = 0.15;
 
         // Editing
         private EditTool _currentTool = EditTool.Select;
         private readonly Dictionary<int, List<PageAnnotation>> _annotations = new();
         private readonly Dictionary<int, (int w, int h)> _renderDims = new();
+        private readonly Dictionary<(int pageIndex, int dpiX), RenderedPage> _renderCache = new();
+        private double _currentDpiScale = 1.0;
         private bool _isDrawing;
         private Point _drawStart;
         private UIElement? _activePreview;
         private InkAnnotation? _activeInk;
+        private CropAnnotation? _activeCrop;
         private TextBox? _activeTextBox;
         private PageAnnotation? _selectedAnnotation;
         private Border? _selectionBorder;
+        private Rectangle? _imageResizeHandle;
+        private bool _isResizingImage;
+        private ImageEditAnnotation? _resizingImageEdit;
+        private Point _imageResizeStart;
+        private Rect _imageResizeOriginalBounds;
+        private readonly PdfContentEditor _contentEditor = new();
 
         // Draw/Highlight settings
         private Color _drawColor = Colors.Red;
@@ -66,6 +86,8 @@ namespace KillerPDF
         private List<SavedSignature> _savedSignatures = new();
         private SavedSignature? _pendingSignature;
         private Border? _signaturePopup;
+        private Border? _cropPopup;
+        private CheckBox? _cropApplyAllCheck;
         private static readonly string SignatureDir = AppDomain.CurrentDomain.BaseDirectory;
         private static readonly string SignatureFile = System.IO.Path.Combine(SignatureDir, "signatures.json");
         private static readonly SolidColorBrush SignatureBorderBrush = FrozenSolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44));
@@ -77,9 +99,12 @@ namespace KillerPDF
         private Grid _pageContentGrid = null!;
         private Button _toolSelectBtn = null!;
         private Button _toolTextBtn = null!;
+        private Button _toolEditTextBtn = null!;
+        private Button _toolEditImageBtn = null!;
         private Button _toolHighlightBtn = null!;
         private Button _toolDrawBtn = null!;
         private Button _toolSignatureBtn = null!;
+        private Button _toolCropBtn = null!;
         private Button _saveAsBtnRef = null!;
         private Button _closeFileBtnRef = null!;
         private ComboBox _zoomBox = null!;
@@ -101,23 +126,32 @@ namespace KillerPDF
             _pageContentGrid = (Grid)FindName("PageContentGrid")!;
             _toolSelectBtn = (Button)FindName("ToolSelectBtn")!;
             _toolTextBtn = (Button)FindName("ToolTextBtn")!;
+            _toolEditTextBtn = (Button)FindName("ToolEditTextBtn")!;
+            _toolEditImageBtn = (Button)FindName("ToolEditImageBtn")!;
             _toolHighlightBtn = (Button)FindName("ToolHighlightBtn")!;
             _toolDrawBtn = (Button)FindName("ToolDrawBtn")!;
             _toolSignatureBtn = (Button)FindName("ToolSignatureBtn")!;
+            _toolCropBtn = (Button)FindName("ToolCropBtn")!;
             _saveAsBtnRef = (Button)FindName("SaveAsBtn")!;
             _closeFileBtnRef = (Button)FindName("CloseFileBtn")!;
             _zoomBox = (ComboBox)FindName("ZoomBox")!;
+            Zoom.SetZoomLevel(Properties.Settings.Default.LastZoomLevel);
+            Zoom.PropertyChanged += Zoom_PropertyChanged;
+            CommandBindings.Add(new CommandBinding(ZoomInRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.In)));
+            CommandBindings.Add(new CommandBinding(ZoomOutRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.Out)));
+            CommandBindings.Add(new CommandBinding(ZoomResetRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.Reset)));
             LoadSignatures();
             BuildContextMenu();
             SetTool(EditTool.Select);
             SourceInitialized += MainWindow_SourceInitialized;
+            DpiChanged += (_, _) => ApplyZoom();
 
             // Open a file passed via command-line / file association (e.g. double-clicking a .pdf)
-            Loaded += (_, _) =>
+            Loaded += async (_, _) =>
             {
                 var args = Environment.GetCommandLineArgs();
                 if (args.Length > 1 && System.IO.File.Exists(args[1]))
-                    OpenFile(args[1]);
+                    await OpenFileAsync(args[1]);
             };
         }
 
@@ -128,18 +162,57 @@ namespace KillerPDF
             return brush;
         }
 
+        private bool ShouldIgnoreGlobalShortcut() => _activeTextBox is not null && _activeTextBox.IsFocused;
+
+        private void OpenCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            Open_Click(sender, e);
+        }
+
+        private void SaveCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            SaveAs_Click(sender, e);
+        }
+
+        private void PrintCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            Print_Click(sender, e);
+        }
+
+        private void FindCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            ToggleSearchBar();
+        }
+
+        private void DropZone_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter || e.Key == Key.Space)
+            {
+                Open_Click(sender, e);
+                e.Handled = true;
+            }
+        }
+
         // ============================================================
         // Maximize-respects-taskbar fix (WindowStyle=None needs WM_GETMINMAXINFO)
         // ============================================================
 
         private void MainWindow_SourceInitialized(object? sender, EventArgs e)
         {
+            UpdateCurrentDpiScale();
             var hwnd = new WindowInteropHelper(this).Handle;
             HwndSource.FromHwnd(hwnd)?.AddHook(WndProc);
         }
 
         private const int WM_GETMINMAXINFO = 0x0024;
+        private const int WM_DPICHANGED = 0x02E0;
         private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
@@ -148,7 +221,24 @@ namespace KillerPDF
                 WmGetMinMaxInfo(hwnd, lParam);
                 handled = true;
             }
+            else if (msg == WM_DPICHANGED)
+            {
+                WmDpiChanged(hwnd, wParam, lParam);
+                handled = true;
+            }
             return IntPtr.Zero;
+        }
+
+        private void WmDpiChanged(IntPtr hwnd, IntPtr wParam, IntPtr lParam)
+        {
+            var rect = Marshal.PtrToStructure<RECT>(lParam);
+            SetWindowPos(hwnd, IntPtr.Zero, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+
+            int dpiX = wParam.ToInt32() & 0xFFFF;
+            _currentDpiScale = dpiX > 0 ? dpiX / 96.0 : GetCurrentDpiScaleFromVisual();
+            InvalidateRenderCache();
+            RerenderCurrentPage();
         }
 
         private static void WmGetMinMaxInfo(IntPtr hwnd, IntPtr lParam)
@@ -176,6 +266,9 @@ namespace KillerPDF
 
         [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -206,6 +299,24 @@ namespace KillerPDF
             public RECT rcMonitor;
             public RECT rcWork;
             public uint dwFlags;
+        }
+
+        private sealed class RenderedPage
+        {
+            public RenderedPage(BitmapSource bitmap, double displayWidth, double displayHeight, int pixelWidth, int pixelHeight)
+            {
+                Bitmap = bitmap;
+                DisplayWidth = displayWidth;
+                DisplayHeight = displayHeight;
+                PixelWidth = pixelWidth;
+                PixelHeight = pixelHeight;
+            }
+
+            public BitmapSource Bitmap { get; }
+            public double DisplayWidth { get; }
+            public double DisplayHeight { get; }
+            public int PixelWidth { get; }
+            public int PixelHeight { get; }
         }
 
         // ============================================================
@@ -260,27 +371,33 @@ namespace KillerPDF
         {
             var menu = new ContextMenu();
 
-            menu.Items.Add(MakeMenuItem("Copy Text", (s, e) => CopySelectedText(), "Ctrl+C"));
-            menu.Items.Add(MakeMenuItem("Print", (s, e) => Print_Click(s!, e), "Ctrl+P"));
+            menu.Items.Add(MakeMenuItem("_Copy Text", (s, e) => CopySelectedText(), "Ctrl+C", "Copy selected text to the clipboard"));
+            menu.Items.Add(MakeMenuItem("_Print", (s, e) => Print_Click(s!, e), "Ctrl+P", "Print the current PDF"));
             menu.Items.Add(new Separator());
-            menu.Items.Add(MakeMenuItem("Select Tool", (s, e) => SetTool(EditTool.Select)));
-            menu.Items.Add(MakeMenuItem("Text Tool", (s, e) => SetTool(EditTool.Text)));
-            menu.Items.Add(MakeMenuItem("Highlight Tool", (s, e) => SetTool(EditTool.Highlight)));
-            menu.Items.Add(MakeMenuItem("Draw Tool", (s, e) => SetTool(EditTool.Draw)));
+            menu.Items.Add(MakeMenuItem("_Select Tool", (s, e) => SetTool(EditTool.Select), null, "Switch to the select tool"));
+            menu.Items.Add(MakeMenuItem("_Text Tool", (s, e) => SetTool(EditTool.Text), null, "Switch to the text tool"));
+            menu.Items.Add(MakeMenuItem("Edit Existing Text", (s, e) => SetTool(EditTool.EditText), null, "Switch to the existing text edit tool"));
+            menu.Items.Add(MakeMenuItem("Edit Existing Image", (s, e) => SetTool(EditTool.EditImage), null, "Switch to the existing image edit tool"));
+            menu.Items.Add(MakeMenuItem("_Highlight Tool", (s, e) => SetTool(EditTool.Highlight), null, "Switch to the highlight tool"));
+            menu.Items.Add(MakeMenuItem("_Draw Tool", (s, e) => SetTool(EditTool.Draw), null, "Switch to the draw tool"));
+            menu.Items.Add(MakeMenuItem("_Crop Tool", (s, e) => SetTool(EditTool.Crop), null, "Switch to the crop tool"));
             menu.Items.Add(new Separator());
-            menu.Items.Add(MakeMenuItem("Delete Selected", (s, e) => DeleteSelected(), "Delete"));
-            menu.Items.Add(MakeMenuItem("Undo Last", (s, e) => Undo_Click(s!, e), "Ctrl+Z"));
-            menu.Items.Add(MakeMenuItem("Clear Page Annotations", (s, e) => ClearAnnotations_Click(s!, e)));
+            menu.Items.Add(MakeMenuItem("De_lete Selected", (s, e) => DeleteSelected(), "Delete", "Delete the selected annotation"));
+            menu.Items.Add(MakeMenuItem("_Undo Last", (s, e) => Undo_Click(s!, e), "Ctrl+Z", "Undo the last annotation change"));
+            menu.Items.Add(MakeMenuItem("Cle_ar Page Annotations", (s, e) => ClearAnnotations_Click(s!, e), null, "Clear all annotations on this page"));
 
             _annotationCanvas.ContextMenu = menu;
         }
 
-        private static MenuItem MakeMenuItem(string header, RoutedEventHandler click, string? gesture = null)
+        private static MenuItem MakeMenuItem(string header, RoutedEventHandler click, string? gesture = null, string? helpText = null)
         {
             var item = new MenuItem { Header = header };
             item.Click += click;
             if (gesture != null)
                 item.InputGestureText = gesture;
+            var automationName = header.Replace("_", string.Empty);
+            AutomationProperties.SetName(item, automationName);
+            AutomationProperties.SetHelpText(item, helpText ?? automationName);
             return item;
         }
 
@@ -288,80 +405,110 @@ namespace KillerPDF
         // File operations
         // ============================================================
 
-        private void OpenFile(string path)
+        private async Task OpenFileAsync(string path)
         {
+            _openCancellationTokenSource?.Cancel();
+            _renderCancellationTokenSource?.Cancel();
+            _openCancellationTokenSource?.Dispose();
+            _openCancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _openCancellationTokenSource.Token;
+
+            SetFileOperationBusy(true, $"Opening {System.IO.Path.GetFileName(path)}...");
             try
             {
-                if (_doc is not null) { _doc.Close(); _doc = null; }
-                _doc = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
-                _currentFile = path;
-                FinishOpenFile(path, path);
+                var result = await OpenFileCoreAsync(path, null, cancellationToken);
+                await FinishOpenFileAsync(result, cancellationToken);
             }
-            catch (Exception ex) when (IsOwnerPasswordException(ex))
+            catch (OperationCanceledException)
             {
-                // PDF has owner/permissions restrictions but no open password —
-                // open read-only so the user can still view and print it.
-                try
-                {
-                    if (_doc is not null) { _doc.Close(); _doc = null; }
-                    _doc = PdfReader.Open(path, PdfDocumentOpenMode.ReadOnly);
-                    _currentFile = path;
-                    FinishOpenFile(path, path);
-                    SetStatus($"Opened {System.IO.Path.GetFileName(path)} (read-only - owner restrictions) - {_doc.PageCount} page(s)");
-                }
-                catch (Exception ex2)
-                {
-                    KillerDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
+                SetStatus("Open canceled");
             }
             catch (Exception ex) when (IsPasswordException(ex))
             {
+                SetFileOperationBusy(false);
                 string? pw = PromptForPassword(path);
-                if (pw is null) return;
+                if (pw is null)
+                {
+                    SetStatus("Open canceled");
+                    return;
+                }
                 try
                 {
-                    if (_doc is not null) { _doc.Close(); _doc = null; }
-                    _doc = PdfReader.Open(path, pw, PdfDocumentOpenMode.Modify);
-                    // Save a decrypted temp copy so Docnet can render without needing the password
-                    var tempDec = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_dec_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(tempDec);
-                    _doc.Close();
-                    _doc = PdfReader.Open(tempDec, PdfDocumentOpenMode.Modify);
-                    _currentFile = tempDec;
-                    FinishOpenFile(path, tempDec);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        SetStatus("Open canceled");
+                        return;
+                    }
+                    SetFileOperationBusy(true, $"Opening {System.IO.Path.GetFileName(path)}...");
+                    _openCancellationTokenSource?.Dispose();
+                    _openCancellationTokenSource = new CancellationTokenSource();
+                    var retryCancellationToken = _openCancellationTokenSource.Token;
+                    var result = await OpenFileCoreAsync(path, pw, retryCancellationToken);
+                    await FinishOpenFileAsync(result, retryCancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    SetStatus("Open canceled");
                 }
                 catch (Exception ex2)
                 {
+                    SetFileOperationBusy(false);
                     KillerDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             catch (Exception ex)
             {
+                SetFileOperationBusy(false);
                 KillerDialog.Show(this, $"Failed to open PDF:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetFileOperationBusy(false);
             }
         }
 
-        private static bool IsOwnerPasswordException(Exception ex) =>
-            ex.Message.IndexOf("owner", StringComparison.OrdinalIgnoreCase) >= 0 &&
-            ex.Message.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0;
-
-        private void FinishOpenFile(string displayPath, string workingPath)
+        private async Task<PdfOpenResult> OpenFileCoreAsync(string path, string? password, CancellationToken cancellationToken)
         {
-            _currentFile = workingPath;
-            FileNameLabel.Text = System.IO.Path.GetFileName(displayPath);
-            _annotations.Clear();
-            _renderDims.Clear();
-            _allSearchRects.Clear();
-            _searchResultPages.Clear();
-            _searchPageCursor = -1;
-            ClearSelection();
-            RefreshPageList();
-            DropZone.Visibility = Visibility.Collapsed;
-            PagePreviewPanel.Visibility = Visibility.Visible;
-            if (_closeFileBtnRef != null) _closeFileBtnRef.IsEnabled = true;
-            MarkDirty(false);
-            if (_doc!.PageCount > 0) PageList.SelectedIndex = 0;
-            SetStatus($"Opened {System.IO.Path.GetFileName(displayPath)} - {_doc.PageCount} page(s)");
+            var result = await _pdfDocumentService.OpenAsync(path, password, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return result;
+        }
+
+        private async Task FinishOpenFileAsync(PdfOpenResult result, CancellationToken cancellationToken)
+        {
+            bool assignedDocument = false;
+            try
+            {
+                int pageCount = result.Document.PageCount;
+                var thumbnails = await _pdfDocumentService.RenderThumbnailsAsync(result.WorkingPath, pageCount, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (_doc is not null) { _doc.Close(); _doc = null; }
+                _doc = result.Document;
+                assignedDocument = true;
+                _currentFile = result.WorkingPath;
+                FileNameLabel.Text = System.IO.Path.GetFileName(result.DisplayPath);
+                _annotations.Clear();
+                InvalidateRenderCache();
+                _contentEditor.ClearCache();
+                _allSearchRects.Clear();
+                _searchResultPages.Clear();
+                _searchPageCursor = -1;
+                ClearSelection();
+                RefreshPageList(thumbnails);
+                DropZone.Visibility = Visibility.Collapsed;
+                PagePreviewPanel.Visibility = Visibility.Visible;
+                if (_closeFileBtnRef != null) _closeFileBtnRef.IsEnabled = true;
+                MarkDirty(false);
+                if (_doc.PageCount > 0) PageList.SelectedIndex = 0;
+                var readOnlySuffix = result.OpenedReadOnly ? " (read-only - owner restrictions)" : string.Empty;
+                SetStatus($"Opened {System.IO.Path.GetFileName(result.DisplayPath)}{readOnlySuffix} - {_doc.PageCount} page(s)");
+            }
+            catch
+            {
+                if (!assignedDocument) result.Document.Close();
+                throw;
+            }
         }
 
         private static bool IsPasswordException(Exception ex) =>
@@ -405,127 +552,174 @@ namespace KillerPDF
             return win.ShowDialog() == true ? result : null;
         }
 
-        private void RefreshPageList()
+        private void RefreshPageList(IReadOnlyList<BitmapSource?>? thumbnails = null)
         {
             PageList.Items.Clear();
-            if (_doc is null || _currentFile is null) return;
+            if (_doc is null) return;
 
-            try
+            for (int i = 0; i < _doc.PageCount; i++)
             {
-                using var docReader = DocLib.Instance.GetDocReader(_currentFile, new PageDimensions(256, 256));
-                for (int i = 0; i < _doc.PageCount; i++)
+                BitmapSource? thumb = thumbnails is not null && i < thumbnails.Count ? thumbnails[i] : null;
+                var img = new Image
                 {
-                    BitmapSource? thumb = null;
-                    try
-                    {
-                        using var pr = docReader.GetPageReader(i);
-                        int tw = pr.GetPageWidth();
-                        int th = pr.GetPageHeight();
-                        var raw = pr.GetImage();
-                        if (tw > 0 && th > 0 && raw != null && raw.Length > 0)
-                        {
-                            var wb = new WriteableBitmap(tw, th, 96, 96, PixelFormats.Bgra32, null);
-                            wb.WritePixels(new Int32Rect(0, 0, tw, th), raw, tw * 4, 0);
-                            wb.Freeze();
-                            thumb = wb;
-                        }
-                    }
-                    catch { /* thumbnail failed, show text fallback */ }
+                    Source = thumb,
+                    Width = 140,
+                    Height = thumb is not null ? 140.0 * thumb.PixelHeight / thumb.PixelWidth : 100,
+                    Stretch = Stretch.Uniform,
+                    Margin = new Thickness(0, 0, 0, 2)
+                };
 
-                    var img = new Image
+                var label = new TextBlock
+                {
+                    Text = $"Page {i + 1}",
+                    Foreground = (SolidColorBrush)FindResource("TextSecondary"),
+                    FontFamily = new FontFamily("Segoe UI"),
+                    FontSize = 10,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+
+                var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+                if (thumb is not null)
+                {
+                    var border = new Border
                     {
-                        Source = thumb,
-                        Width = 140,
-                        Height = thumb is not null ? 140.0 * thumb.PixelHeight / thumb.PixelWidth : 100,
-                        Stretch = Stretch.Uniform,
-                        Margin = new Thickness(0, 0, 0, 2)
+                        Background = Brushes.White,
+                        BorderBrush = FrozenSolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
+                        BorderThickness = new Thickness(1),
+                        Child = img
                     };
-
-                    var label = new TextBlock
+                    panel.Children.Add(border);
+                }
+                else
+                {
+                    panel.Children.Add(new TextBlock
                     {
                         Text = $"Page {i + 1}",
-                        Foreground = (SolidColorBrush)FindResource("TextSecondary"),
-                        FontFamily = new FontFamily("Segoe UI"),
-                        FontSize = 10,
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    };
-
-                    var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
-                    if (thumb is not null)
-                    {
-                        var border = new Border
-                        {
-                            Background = Brushes.White,
-                            BorderBrush = FrozenSolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
-                            BorderThickness = new Thickness(1),
-                            Child = img
-                        };
-                        panel.Children.Add(border);
-                    }
-                    else
-                    {
-                        panel.Children.Add(new TextBlock
-                        {
-                            Text = $"Page {i + 1}",
-                            Foreground = (SolidColorBrush)FindResource("TextPrimary"),
-                            FontFamily = new FontFamily("Consolas"),
-                            FontSize = 13,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            Margin = new Thickness(0, 20, 0, 20)
-                        });
-                    }
-                    panel.Children.Add(label);
-                    PageList.Items.Add(panel);
+                        Foreground = (SolidColorBrush)FindResource("TextPrimary"),
+                        FontFamily = new FontFamily("Consolas"),
+                        FontSize = 13,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Margin = new Thickness(0, 20, 0, 20)
+                    });
                 }
-            }
-            catch
-            {
-                // Fallback to plain text list
-                for (int i = 0; i < _doc.PageCount; i++)
-                    PageList.Items.Add($"Page {i + 1}");
+                panel.Children.Add(label);
+                PageList.Items.Add(panel);
             }
         }
 
-        private void RenderPage(int pageIndex)
+        private void UpdateCurrentDpiScale()
+        {
+            _currentDpiScale = GetCurrentDpiScaleFromVisual();
+        }
+
+        private double GetCurrentDpiScaleFromVisual()
+        {
+            var source = PresentationSource.FromVisual(this);
+            var transform = source?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+            return transform.M11 > 0 ? transform.M11 : 1.0;
+        }
+
+        private int GetCurrentDpiX()
+        {
+            return Math.Max(1, (int)Math.Round(_currentDpiScale * Zoom.ZoomLevel * 96.0));
+        }
+
+        private void InvalidateRenderCache()
+        {
+            _renderCache.Clear();
+            _renderDims.Clear();
+        }
+
+        private void RerenderCurrentPage()
+        {
+            int pageIndex = PageList.SelectedIndex;
+            if (pageIndex < 0 || _doc is null) return;
+
+            RenderPage(pageIndex);
+            ApplyZoom();
+            if (_searchBar is not null && _searchBar.Visibility == Visibility.Visible
+                && _allSearchRects.Count > 0)
+            {
+                HighlightSearchResultsOnCurrentPage();
+            }
+        }
+
+        private async void RenderPage(int pageIndex)
         {
             if (_currentFile is null || _doc is null) return;
+            var currentFile = _currentFile;
+            _renderCancellationTokenSource?.Cancel();
+            _renderCancellationTokenSource?.Dispose();
+            _renderCancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _renderCancellationTokenSource.Token;
             try
             {
-                using var docReader = DocLib.Instance.GetDocReader(_currentFile, new PageDimensions(1536, 1536));
-                using var pageReader = docReader.GetPageReader(pageIndex);
-
-                int width = pageReader.GetPageWidth();
-                int height = pageReader.GetPageHeight();
-                var rawBytes = pageReader.GetImage();
-
-                if (width <= 0 || height <= 0 || rawBytes == null || rawBytes.Length == 0)
+                int dpiX = GetCurrentDpiX();
+                SetBusy(true, $"Rendering page {pageIndex + 1}...");
+                if (!_renderCache.TryGetValue((pageIndex, dpiX), out var renderedPage))
                 {
-                    PageImage.Source = null;
-                    SetStatus($"Page {pageIndex + 1} - could not render");
-                    return;
+                    var result = await _pdfDocumentService.RenderPageAsync(currentFile, pageIndex, dpiX, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (result.Bitmap is null || result.Width <= 0 || result.Height <= 0)
+                    {
+                        PageImage.Source = null;
+                        SetStatus($"Page {pageIndex + 1} - could not render");
+                        return;
+                    }
+
+                    double renderScale = dpiX / 96.0;
+                    renderedPage = new RenderedPage(result.Bitmap, result.Width / renderScale, result.Height / renderScale, result.Width, result.Height);
+                    _renderCache[(pageIndex, dpiX)] = renderedPage;
                 }
 
-                _renderDims[pageIndex] = (width, height);
+                if (_doc is null) return;
 
-                var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
-                bitmap.WritePixels(new Int32Rect(0, 0, width, height), rawBytes, width * 4, 0);
-                if (bitmap.CanFreeze) bitmap.Freeze();
-
-                PageImage.Source = bitmap;
-                _annotationCanvas.Width = width;
-                _annotationCanvas.Height = height;
+                _renderDims[pageIndex] = ((int)Math.Round(renderedPage.DisplayWidth), (int)Math.Round(renderedPage.DisplayHeight));
+                PageImage.Source = renderedPage.Bitmap;
+                PageImage.Width = renderedPage.DisplayWidth;
+                PageImage.Height = renderedPage.DisplayHeight;
+                _annotationCanvas.Width = renderedPage.DisplayWidth;
+                _annotationCanvas.Height = renderedPage.DisplayHeight;
                 ClearSelection();
                 RenderAllAnnotations(pageIndex);
-                SetStatus($"Page {pageIndex + 1} of {_doc.PageCount}");
+                SetStatus($"Page {pageIndex + 1} of {_doc.PageCount} - {Zoom.DisplayText}");
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {
                 PageImage.Source = null;
                 SetStatus($"Render error: {ex.Message}");
             }
+            finally
+            {
+                SetBusy(false);
+            }
         }
 
         private void SetStatus(string text) => StatusText.Text = text;
+
+        private void SetBusy(bool isBusy, string? status = null)
+        {
+            _busyDepth = isBusy ? _busyDepth + 1 : Math.Max(0, _busyDepth - 1);
+            Mouse.OverrideCursor = _busyDepth > 0 ? Cursors.Wait : null;
+            if (!string.IsNullOrEmpty(status)) SetStatus(status);
+        }
+
+        private void SetFileOperationBusy(bool isBusy, string? status = null)
+        {
+            if (_isFileOperationBusy == isBusy)
+            {
+                if (!string.IsNullOrEmpty(status)) SetStatus(status);
+                return;
+            }
+
+            _isFileOperationBusy = isBusy;
+            IsEnabled = !isBusy;
+            SetBusy(isBusy, status);
+        }
 
         // ============================================================
         // Tool selection
@@ -541,9 +735,12 @@ namespace KillerPDF
             {
                 (_toolSelectBtn, EditTool.Select),
                 (_toolTextBtn, EditTool.Text),
+                (_toolEditTextBtn, EditTool.EditText),
+                (_toolEditImageBtn, EditTool.EditImage),
                 (_toolHighlightBtn, EditTool.Highlight),
                 (_toolDrawBtn, EditTool.Draw),
-                (_toolSignatureBtn, EditTool.Signature)
+                (_toolSignatureBtn, EditTool.Signature),
+                (_toolCropBtn, EditTool.Crop)
             };
             var green = (SolidColorBrush)FindResource("AccentGreen");
             var greenDim = (SolidColorBrush)FindResource("AccentGreenDim");
@@ -558,9 +755,12 @@ namespace KillerPDF
             _annotationCanvas.Cursor = tool switch
             {
                 EditTool.Text => Cursors.IBeam,
+                EditTool.EditText => Cursors.IBeam,
+                EditTool.EditImage => Cursors.Hand,
                 EditTool.Highlight => Cursors.Cross,
                 EditTool.Draw => Cursors.Pen,
                 EditTool.Signature => Cursors.Hand,
+                EditTool.Crop => Cursors.Cross,
                 _ => Cursors.Arrow
             };
 
@@ -576,12 +776,25 @@ namespace KillerPDF
                 HideSignaturePopup();
                 _pendingSignature = null;
             }
+
+            if (tool != EditTool.Crop)
+            {
+                HideCropPopup();
+                ClearCropSelection();
+            }
         }
 
         private void ToolSelect_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Select);
         private void ToolText_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Text);
+        private void ToolEditText_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.EditText);
+        private void ToolEditImage_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.EditImage);
         private void ToolHighlight_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Highlight);
         private void ToolDraw_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Draw);
+        private void ToolCrop_Click(object sender, RoutedEventArgs e)
+        {
+            SetTool(EditTool.Crop);
+            ShowCropPopup();
+        }
         private void ToolSignature_Click(object sender, RoutedEventArgs e)
         {
             if (_signaturePopup is not null)
@@ -766,6 +979,94 @@ namespace KillerPDF
                 previewGrid?.Children.Remove(_drawSettingsBar);
                 _drawSettingsBar = null;
             }
+        }
+
+        // ============================================================
+        // Crop settings bar
+        // ============================================================
+
+        private void ShowCropPopup()
+        {
+            if (_cropPopup is not null)
+            {
+                _cropPopup.Visibility = Visibility.Visible;
+                return;
+            }
+
+            var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 4, 8, 4) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Drag a crop rectangle",
+                Foreground = (SolidColorBrush)FindResource("TextSecondary"),
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 10, 0)
+            });
+
+            _cropApplyAllCheck = new CheckBox
+            {
+                Content = "Apply to all pages",
+                Foreground = (SolidColorBrush)FindResource("TextPrimary"),
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            panel.Children.Add(_cropApplyAllCheck);
+
+            var applyBtn = new Button
+            {
+                Content = "Apply crop",
+                Style = (Style)FindResource("ToolbarButtonAccent"),
+                ToolTip = "Apply the selected crop rectangle"
+            };
+            applyBtn.Click += ApplyCrop_Click;
+            panel.Children.Add(applyBtn);
+
+            var resetBtn = new Button
+            {
+                Content = "Reset",
+                Style = (Style)FindResource("ToolbarButton"),
+                ToolTip = "Clear the current crop rectangle"
+            };
+            resetBtn.Click += (s, e) => ClearCropSelection();
+            panel.Children.Add(resetBtn);
+
+            var cancelBtn = new Button
+            {
+                Content = "Cancel",
+                Style = (Style)FindResource("ToolbarButton"),
+                ToolTip = "Cancel cropping"
+            };
+            cancelBtn.Click += (s, e) => SetTool(EditTool.Select);
+            panel.Children.Add(cancelBtn);
+
+            _cropPopup = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
+                BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                CornerRadius = new CornerRadius(0, 0, 4, 4),
+                Padding = new Thickness(4),
+                Child = panel,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+
+            var previewArea = PagePreviewPanel.Parent as Grid;
+            if (previewArea is not null)
+            {
+                Panel.SetZIndex(_cropPopup, 101);
+                previewArea.Children.Add(_cropPopup);
+            }
+        }
+
+        private void HideCropPopup()
+        {
+            if (_cropPopup is not null)
+                _cropPopup.Visibility = Visibility.Collapsed;
         }
 
         // ============================================================
@@ -1367,6 +1668,18 @@ namespace KillerPDF
             int pageIdx = PageList.SelectedIndex;
             if (pageIdx < 0) return;
 
+            if (_currentTool == EditTool.EditImage && _imageResizeHandle is not null &&
+                e.OriginalSource == _imageResizeHandle && _selectedAnnotation is ImageEditAnnotation selectedImage)
+            {
+                _isResizingImage = true;
+                _resizingImageEdit = selectedImage;
+                _imageResizeStart = pos;
+                _imageResizeOriginalBounds = selectedImage.TargetBounds;
+                _annotationCanvas.CaptureMouse();
+                e.Handled = true;
+                return;
+            }
+
             switch (_currentTool)
             {
                 case EditTool.Select:
@@ -1405,6 +1718,18 @@ namespace KillerPDF
                     e.Handled = true;
                     break;
 
+                case EditTool.EditText:
+                    CommitActiveTextBox();
+                    EditTextAtPosition(pos, pageIdx);
+                    e.Handled = true;
+                    break;
+
+                case EditTool.EditImage:
+                    CommitActiveTextBox();
+                    EditImageAtPosition(pos, pageIdx);
+                    e.Handled = true;
+                    break;
+
                 case EditTool.Highlight:
                     ClearSelection();
                     _isDrawing = true;
@@ -1419,6 +1744,29 @@ namespace KillerPDF
                     _annotationCanvas.Children.Add(rect);
                     _activePreview = rect;
                     _annotationCanvas.CaptureMouse();
+                    break;
+
+                case EditTool.Crop:
+                    ClearSelection();
+                    ClearCropSelection();
+                    _isDrawing = true;
+                    _drawStart = pos;
+                    var cropRect = new Rectangle
+                    {
+                        Fill = new SolidColorBrush(Color.FromArgb(35, 74, 222, 128)),
+                        Stroke = (SolidColorBrush)FindResource("AccentGreen"),
+                        StrokeThickness = 2,
+                        StrokeDashArray = new DoubleCollection { 6, 3 },
+                        Width = 0,
+                        Height = 0,
+                        IsHitTestVisible = false
+                    };
+                    Canvas.SetLeft(cropRect, pos.X);
+                    Canvas.SetTop(cropRect, pos.Y);
+                    _annotationCanvas.Children.Add(cropRect);
+                    _activePreview = cropRect;
+                    _annotationCanvas.CaptureMouse();
+                    e.Handled = true;
                     break;
 
                 case EditTool.Draw:
@@ -1471,11 +1819,19 @@ namespace KillerPDF
                 return;
             }
 
+            if (_isResizingImage && _resizingImageEdit is not null)
+            {
+                ResizeImageEditPreview(pos);
+                return;
+            }
+
             if (!_isDrawing || _activePreview is null) return;
 
             switch (_currentTool)
             {
-                case EditTool.Highlight when _activePreview is Rectangle rect:
+                case EditTool.Highlight when _activePreview is Rectangle:
+                case EditTool.Crop when _activePreview is Rectangle:
+                    var rect = (Rectangle)_activePreview;
                     Canvas.SetLeft(rect, Math.Min(pos.X, _drawStart.X));
                     Canvas.SetTop(rect, Math.Min(pos.Y, _drawStart.Y));
                     rect.Width = Math.Abs(pos.X - _drawStart.X);
@@ -1529,6 +1885,18 @@ namespace KillerPDF
                 return;
             }
 
+            if (_isResizingImage && _resizingImageEdit is not null)
+            {
+                _isResizingImage = false;
+                _annotationCanvas.ReleaseMouseCapture();
+                RenderAllAnnotations(_resizingImageEdit.PageIndex);
+                SelectAnnotation(_resizingImageEdit, _resizingImageEdit.TargetBounds);
+                MarkDirty();
+                SetStatus("Image resize committed - save to apply white-out + overdraw");
+                _resizingImageEdit = null;
+                return;
+            }
+
             if (!_isDrawing) return;
             _isDrawing = false;
             _annotationCanvas.ReleaseMouseCapture();
@@ -1552,6 +1920,25 @@ namespace KillerPDF
                     }
                     break;
 
+                case EditTool.Crop when _activePreview is Rectangle rect:
+                    if (rect.Width > 5 && rect.Height > 5)
+                    {
+                        _activeCrop = new CropAnnotation
+                        {
+                            PageIndex = pageIdx,
+                            Bounds = new Rect(Canvas.GetLeft(rect), Canvas.GetTop(rect), rect.Width, rect.Height)
+                        };
+                        ShowCropPopup();
+                        SetStatus("Crop rectangle selected - choose Apply crop, Reset, or Cancel");
+                    }
+                    else
+                    {
+                        _annotationCanvas.Children.Remove(rect);
+                        _activePreview = null;
+                        _activeCrop = null;
+                    }
+                    break;
+
                 case EditTool.Draw when _activeInk is not null:
                     if (_activeInk.Points.Count > 2)
                     {
@@ -1565,6 +1952,126 @@ namespace KillerPDF
                     break;
             }
             _activePreview = null;
+        }
+
+        private void ClearCropSelection()
+        {
+            bool hasCropSelection = _activeCrop is not null || _currentTool == EditTool.Crop;
+            if (!hasCropSelection) return;
+
+            if (_activePreview is Rectangle rect)
+                _annotationCanvas.Children.Remove(rect);
+
+            if (_activePreview is Rectangle)
+                _activePreview = null;
+            _activeCrop = null;
+            if (_currentTool == EditTool.Crop)
+                SetStatus("Crop cleared - drag a new crop rectangle");
+        }
+
+        private async void ApplyCrop_Click(object sender, RoutedEventArgs e)
+        {
+            if (_doc is null || _currentFile is null)
+            {
+                KillerDialog.Show(this, "Open a PDF first.");
+                return;
+            }
+
+            if (_activeCrop is null)
+            {
+                KillerDialog.Show(this, "Drag a crop rectangle first.", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            int pageIdx = _activeCrop.PageIndex;
+            if (pageIdx < 0 || pageIdx >= _doc.PageCount || !_renderDims.ContainsKey(pageIdx))
+            {
+                KillerDialog.Show(this, "The selected crop page is no longer available.", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ClearCropSelection();
+                return;
+            }
+
+            string sourcePath = _currentFile;
+            int selectedIdx = PageList.SelectedIndex;
+            bool applyToAll = _cropApplyAllCheck?.IsChecked == true;
+
+            _openCancellationTokenSource?.Cancel();
+            _renderCancellationTokenSource?.Cancel();
+            _openCancellationTokenSource?.Dispose();
+            _openCancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _openCancellationTokenSource.Token;
+
+            SetFileOperationBusy(true, applyToAll ? "Applying crop to all pages..." : $"Applying crop to page {pageIdx + 1}...");
+            try
+            {
+                CommitActiveTextBox();
+                var cropRect = CanvasRectToPdfCropRect(pageIdx, _activeCrop.Bounds);
+                _doc.Close();
+                _doc = null;
+
+                string croppedPath = await Task.Run(() => CropService.Apply(sourcePath, pageIdx, cropRect, applyToAll), cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = await OpenFileCoreAsync(croppedPath, null, cancellationToken);
+                await FinishOpenFileAsync(result, cancellationToken);
+                if (selectedIdx >= 0 && selectedIdx < PageList.Items.Count)
+                    PageList.SelectedIndex = selectedIdx;
+                else if (PageList.Items.Count > 0)
+                    PageList.SelectedIndex = 0;
+                ClearCropSelection();
+                MarkDirty();
+                SetStatus(applyToAll ? "Crop applied to all pages" : $"Crop applied to page {pageIdx + 1}");
+            }
+            catch (OperationCanceledException)
+            {
+                SetStatus("Crop canceled");
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    if (_doc is null && System.IO.File.Exists(sourcePath))
+                    {
+                        var restoreResult = await OpenFileCoreAsync(sourcePath, null, CancellationToken.None);
+                        await FinishOpenFileAsync(restoreResult, CancellationToken.None);
+                        if (selectedIdx >= 0 && selectedIdx < PageList.Items.Count)
+                            PageList.SelectedIndex = selectedIdx;
+                    }
+                }
+                catch { }
+                SetFileOperationBusy(false);
+                KillerDialog.Show(this, $"Crop failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetFileOperationBusy(false);
+            }
+        }
+
+        private Rect CanvasRectToPdfCropRect(int pageIdx, Rect canvasBounds)
+        {
+            var (renderW, renderH) = _renderDims[pageIdx];
+            var page = _doc!.Pages[pageIdx];
+            var box = GetVisiblePageBox(page);
+            double boxLeft = Math.Min(box.X1, box.X2);
+            double boxRight = Math.Max(box.X1, box.X2);
+            double boxBottom = Math.Min(box.Y1, box.Y2);
+            double boxTop = Math.Max(box.Y1, box.Y2);
+            double sx = (boxRight - boxLeft) / renderW;
+            double sy = (boxTop - boxBottom) / renderH;
+
+            double left = boxLeft + canvasBounds.Left * sx;
+            double right = boxLeft + canvasBounds.Right * sx;
+            double top = boxTop - canvasBounds.Top * sy;
+            double bottom = boxTop - canvasBounds.Bottom * sy;
+            return new Rect(left, bottom, right - left, top - bottom);
+        }
+
+        private static PdfRectangle GetVisiblePageBox(PdfPage page)
+        {
+            var crop = page.CropBox;
+            if (Math.Abs(crop.X2 - crop.X1) > 0.1 && Math.Abs(crop.Y2 - crop.Y1) > 0.1)
+                return crop;
+            return page.MediaBox;
         }
 
         // ============================================================
@@ -1607,6 +2114,10 @@ namespace KillerPDF
                     bounds = tea.OriginalBounds;
                     return bounds.Contains(pos);
 
+                case ImageEditAnnotation iea:
+                    bounds = iea.TargetBounds;
+                    return bounds.Contains(pos);
+
                 case SignatureAnnotation sa:
                     double sigW = sa.SourceWidth * sa.Scale;
                     double sigH = sa.SourceHeight * sa.Scale;
@@ -1621,6 +2132,7 @@ namespace KillerPDF
 
         private void SelectAnnotation(PageAnnotation annot, Rect bounds)
         {
+            ClearSelection();
             _selectedAnnotation = annot;
             _selectionBorder = new Border
             {
@@ -1634,6 +2146,21 @@ namespace KillerPDF
             Canvas.SetLeft(_selectionBorder, bounds.X - 4);
             Canvas.SetTop(_selectionBorder, bounds.Y - 4);
             _annotationCanvas.Children.Add(_selectionBorder);
+            if (annot is ImageEditAnnotation)
+            {
+                _imageResizeHandle = new Rectangle
+                {
+                    Width = 12,
+                    Height = 12,
+                    Fill = (SolidColorBrush)FindResource("AccentGreen"),
+                    Stroke = Brushes.White,
+                    StrokeThickness = 1,
+                    Cursor = Cursors.SizeNWSE
+                };
+                Canvas.SetLeft(_imageResizeHandle, bounds.Right - 2);
+                Canvas.SetTop(_imageResizeHandle, bounds.Bottom - 2);
+                _annotationCanvas.Children.Add(_imageResizeHandle);
+            }
             SetStatus($"Selected {annot.GetType().Name.Replace("Annotation", "").ToLower()} annotation - press Delete to remove");
         }
 
@@ -1655,6 +2182,11 @@ namespace KillerPDF
                 _annotationCanvas.Children.Remove(_selectionBorder);
                 _selectionBorder = null;
             }
+            if (_imageResizeHandle is not null)
+            {
+                _annotationCanvas.Children.Remove(_imageResizeHandle);
+                _imageResizeHandle = null;
+            }
             _selectedAnnotation = null;
         }
 
@@ -1666,6 +2198,7 @@ namespace KillerPDF
                 _annotations[pageIdx].Remove(_selectedAnnotation);
             ClearSelection();
             RenderAllAnnotations(pageIdx);
+            MarkDirty();
             SetStatus("Deleted selected annotation");
         }
 
@@ -1838,6 +2371,8 @@ namespace KillerPDF
                     Padding = new Thickness(6, 2, 6, 2),
                     VerticalContentAlignment = VerticalAlignment.Center
                 };
+                AutomationProperties.SetName(_searchBox, "Search text");
+                AutomationProperties.SetHelpText(_searchBox, "Enter text to find in the current PDF. Press Enter for next result and Shift Enter for previous result.");
                 _searchBox.KeyDown += SearchBox_KeyDown;
                 _searchBox.TextChanged += SearchBox_TextChanged;
 
@@ -1849,6 +2384,9 @@ namespace KillerPDF
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(8, 0, 0, 0)
                 };
+                AutomationProperties.SetName(_searchStatus, "Search status");
+                AutomationProperties.SetHelpText(_searchStatus, "Search result status");
+                AutomationProperties.SetLiveSetting(_searchStatus, AutomationLiveSetting.Polite);
 
                 var closeBtn = new Button
                 {
@@ -1857,6 +2395,8 @@ namespace KillerPDF
                     Style = (Style)FindResource("ToolbarButton"),
                     ToolTip = "Close search (Esc)"
                 };
+                AutomationProperties.SetName(closeBtn, "Close search");
+                AutomationProperties.SetHelpText(closeBtn, "Close the search bar. Shortcut Escape.");
                 closeBtn.Click += (s, e) => CloseSearchBar();
 
                 var searchIcon = new TextBlock
@@ -2131,6 +2671,7 @@ namespace KillerPDF
         private void EditTextAtPosition(Point canvasPos, int pageIdx)
         {
             if (_currentFile is null || !_renderDims.ContainsKey(pageIdx)) return;
+            ClearSelection();
 
             // Commit any existing edit first
             if (_activeTextBox is not null)
@@ -2142,128 +2683,36 @@ namespace KillerPDF
             try
             {
                 var (renderW, renderH) = _renderDims[pageIdx];
-
-                using var pigDoc = PdfPigDoc.Open(_currentFile);
-                if (pageIdx >= pigDoc.NumberOfPages) return;
-                var page = pigDoc.GetPage(pageIdx + 1);
-
-                double pdfW = page.Width;
-                double pdfH = page.Height;
-                double sxInv = (double)renderW / pdfW; // pdf->canvas
-                double syInv = (double)renderH / pdfH;
-
-                // Convert all words to canvas coordinates upfront
-                var canvasWords = page.GetWords().Select(w =>
-                {
-                    double cx = w.BoundingBox.Left * sxInv;
-                    double cy = renderH - (w.BoundingBox.Top * syInv);
-                    double cw = (w.BoundingBox.Right - w.BoundingBox.Left) * sxInv;
-                    double ch = (w.BoundingBox.Top - w.BoundingBox.Bottom) * syInv;
-                    return new { Word = w, Rect = new Rect(cx, cy, cw, ch) };
-                }).ToList();
-
-                if (canvasWords.Count == 0) { SetStatus("No text found at this position"); return; }
-
-                // Find words on the same line as the click (Y overlap with tolerance)
-                var clickY = canvasPos.Y;
-                var lineWords = canvasWords
-                    .Where(cw => clickY >= cw.Rect.Top - 3 && clickY <= cw.Rect.Bottom + 3)
-                    .OrderBy(cw => cw.Rect.Left)  // strictly left-to-right
-                    .ToList();
-
-                if (lineWords.Count == 0)
-                {
-                    // Try nearest line within 20px
-                    var nearest = canvasWords
-                        .OrderBy(cw => Math.Abs((cw.Rect.Top + cw.Rect.Bottom) / 2 - clickY))
-                        .First();
-                    double nearMidY = (nearest.Rect.Top + nearest.Rect.Bottom) / 2;
-                    lineWords = canvasWords
-                        .Where(cw => Math.Abs((cw.Rect.Top + cw.Rect.Bottom) / 2 - nearMidY) < 5)
-                        .OrderBy(cw => cw.Rect.Left)
-                        .ToList();
-                }
-
-                if (lineWords.Count == 0)
-                {
-                    SetStatus("No text line found at this position");
-                    return;
-                }
-
-                // Compute bounding box in canvas space
-                double cLeft = lineWords.Min(w => w.Rect.Left);
-                double cTop = lineWords.Min(w => w.Rect.Top);
-                double cRight = lineWords.Max(w => w.Rect.Right);
-                double cBottom = lineWords.Max(w => w.Rect.Bottom);
-                double cWidth = cRight - cLeft;
-                double cHeight = cBottom - cTop;
-
-                string lineText = string.Join(" ", lineWords.Select(w => w.Word.Text));
-
-                // Get actual font info from PdfPig letter data
-                double canvasFontSize = cHeight * 0.75; // fallback
-                string fontName = "Segoe UI"; // fallback
-                var firstWord = lineWords.First().Word;
-                try
-                {
-                    if (firstWord.Letters.Count > 0)
-                    {
-                        var letter = firstWord.Letters[0];
-                        double pdfFontPts = letter.FontSize;
-                        canvasFontSize = pdfFontPts * syInv;
-
-                        // Try to get font name from letter
-                        string? rawFont = null;
-                        try { rawFont = letter.FontName; } catch { }
-                        if (string.IsNullOrEmpty(rawFont))
-                        {
-                            // Some PdfPig versions use different property paths
-                            try { rawFont = firstWord.FontName; } catch { }
-                        }
-                        if (!string.IsNullOrEmpty(rawFont))
-                        {
-                            string fontStr = rawFont!;
-                            // Strip PDF subset prefix (e.g. "ABCDEF+FontName" -> "FontName")
-                            if (fontStr.Contains('+'))
-                                fontStr = fontStr.Substring(fontStr.IndexOf('+') + 1);
-                            // Clean common suffixes
-                            fontStr = fontStr.Replace(",Bold", "").Replace(",Italic", "")
-                                             .Replace("-Bold", "").Replace("-Italic", "")
-                                             .Replace("-Roman", "").Replace("-Regular", "");
-                            if (!string.IsNullOrWhiteSpace(fontStr))
-                                fontName = fontStr;
-                        }
-                    }
-                }
-                catch { /* use fallbacks */ }
+                var hit = _contentEditor.FindTextRunAt(_currentFile, pageIdx, canvasPos, renderW, renderH);
+                if (hit is null) { SetStatus("No text found at this position"); return; }
 
                 // Show editable TextBox over the line
                 var tb = new TextBox
                 {
-                    Text = lineText,
+                    Text = hit.Text,
                     Background = FrozenSolidColorBrush(Color.FromArgb(240, 255, 255, 255)),
                     Foreground = Brushes.Black,
                     BorderBrush = (SolidColorBrush)FindResource("AccentGreen"),
                     BorderThickness = new Thickness(2),
-                    FontFamily = new FontFamily(fontName),
-                    FontSize = Math.Max(canvasFontSize, 10),
-                    MinWidth = Math.Max(cWidth + 20, 100),
-                    Height = Math.Max(cHeight + 12, 24),
+                    FontFamily = new FontFamily(hit.FontName),
+                    FontSize = hit.FontSize,
+                    MinWidth = Math.Max(hit.CanvasBounds.Width + 20, 100),
+                    Height = Math.Max(hit.CanvasBounds.Height + 12, 24),
                     Padding = new Thickness(2, 0, 2, 0),
                     VerticalContentAlignment = VerticalAlignment.Center,
                     AcceptsReturn = false,
                     Tag = new TextEditContext
                     {
                         PageIndex = pageIdx,
-                        OriginalText = lineText,
-                        CanvasBounds = new Rect(cLeft, cTop, cWidth, cHeight),
-                        Position = new Point(cLeft, cTop),
-                        FontSize = Math.Max(canvasFontSize, 10),
-                        FontName = fontName
+                        OriginalText = hit.Text,
+                        CanvasBounds = hit.CanvasBounds,
+                        Position = hit.Position,
+                        FontSize = hit.FontSize,
+                        FontName = hit.FontName
                     }
                 };
-                Canvas.SetLeft(tb, cLeft);
-                Canvas.SetTop(tb, cTop);
+                Canvas.SetLeft(tb, hit.CanvasBounds.X);
+                Canvas.SetTop(tb, hit.CanvasBounds.Y);
                 _annotationCanvas.Children.Add(tb);
                 _activeTextBox = tb;
 
@@ -2271,13 +2720,13 @@ namespace KillerPDF
                 var whiteout = new Rectangle
                 {
                     Fill = Brushes.White,
-                    Width = cWidth + 4,
-                    Height = cHeight + 4,
+                    Width = hit.CanvasBounds.Width + 4,
+                    Height = hit.CanvasBounds.Height + 4,
                     IsHitTestVisible = false,
                     Tag = "EditWhiteout"
                 };
-                Canvas.SetLeft(whiteout, cLeft - 2);
-                Canvas.SetTop(whiteout, cTop - 2);
+                Canvas.SetLeft(whiteout, hit.CanvasBounds.X - 2);
+                Canvas.SetTop(whiteout, hit.CanvasBounds.Y - 2);
                 int tbIdx = _annotationCanvas.Children.IndexOf(tb);
                 _annotationCanvas.Children.Insert(tbIdx, whiteout);
 
@@ -2382,6 +2831,130 @@ namespace KillerPDF
             SetStatus($"Text edited: \"{ctx.OriginalText}\" -> \"{newText}\"");
         }
 
+        private void EditImageAtPosition(Point canvasPos, int pageIdx)
+        {
+            if (_currentFile is null || !_renderDims.ContainsKey(pageIdx)) return;
+
+            if (_annotations.TryGetValue(pageIdx, out var pageAnnots))
+            {
+                for (int i = pageAnnots.Count - 1; i >= 0; i--)
+                {
+                    if (pageAnnots[i] is ImageEditAnnotation existing && existing.TargetBounds.Contains(canvasPos))
+                    {
+                        SelectAnnotation(existing, existing.TargetBounds);
+                        ShowImageEditMenu(existing);
+                        return;
+                    }
+                }
+            }
+
+            var (renderW, renderH) = _renderDims[pageIdx];
+            var hit = _contentEditor.FindImageAt(_currentFile, pageIdx, canvasPos, renderW, renderH);
+            if (hit is null)
+            {
+                SetStatus("No image found at this position");
+                return;
+            }
+
+            var edit = new ImageEditAnnotation
+            {
+                PageIndex = pageIdx,
+                OriginalBounds = hit.CanvasBounds,
+                TargetBounds = hit.CanvasBounds,
+                OriginalImageData = CapturePageImageRegion(hit.CanvasBounds)
+            };
+            AddAnnotation(edit);
+            RenderAllAnnotations(pageIdx);
+            SelectAnnotation(edit, edit.TargetBounds);
+            ShowImageEditMenu(edit);
+            SetStatus("Image selected - replace, delete, or drag the green handle to resize");
+        }
+
+        private string? CapturePageImageRegion(Rect bounds)
+        {
+            if (PageImage.Source is not BitmapSource source) return null;
+
+            int x = Math.Max(0, (int)Math.Floor(bounds.X));
+            int y = Math.Max(0, (int)Math.Floor(bounds.Y));
+            int right = Math.Min(source.PixelWidth, (int)Math.Ceiling(bounds.Right));
+            int bottom = Math.Min(source.PixelHeight, (int)Math.Ceiling(bounds.Bottom));
+            if (right <= x || bottom <= y) return null;
+
+            var crop = new CroppedBitmap(source, new Int32Rect(x, y, right - x, bottom - y));
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(crop));
+            using var ms = new MemoryStream();
+            encoder.Save(ms);
+            return Convert.ToBase64String(ms.ToArray());
+        }
+
+        private void ShowImageEditMenu(ImageEditAnnotation edit)
+        {
+            var menu = new ContextMenu();
+            menu.Items.Add(MakeMenuItem("Replace Image...", (s, e) => ReplaceImageEdit(edit)));
+            menu.Items.Add(MakeMenuItem("Delete Image", (s, e) => DeleteImageEdit(edit)));
+            menu.Items.Add(MakeMenuItem("Reset Size", (s, e) => ResetImageEditSize(edit)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "Resize: drag the green handle" });
+            menu.PlacementTarget = _annotationCanvas;
+            menu.IsOpen = true;
+        }
+
+        private void ReplaceImageEdit(ImageEditAnnotation edit)
+        {
+            var dlg = new OpenFileDialog
+            {
+                Filter = "Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif|All files|*.*",
+                Title = "Select replacement image"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            edit.ReplacementImagePath = dlg.FileName;
+            edit.IsDeleted = false;
+            RenderAllAnnotations(edit.PageIndex);
+            SelectAnnotation(edit, edit.TargetBounds);
+            MarkDirty();
+            SetStatus("Replacement image selected - save to apply white-out + overdraw");
+        }
+
+        private void DeleteImageEdit(ImageEditAnnotation edit)
+        {
+            edit.IsDeleted = true;
+            RenderAllAnnotations(edit.PageIndex);
+            SelectAnnotation(edit, edit.TargetBounds);
+            MarkDirty();
+            SetStatus("Image marked for deletion - save to apply white-out");
+        }
+
+        private void ResetImageEditSize(ImageEditAnnotation edit)
+        {
+            edit.TargetBounds = edit.OriginalBounds;
+            RenderAllAnnotations(edit.PageIndex);
+            SelectAnnotation(edit, edit.TargetBounds);
+            MarkDirty();
+            SetStatus("Image size reset");
+        }
+
+        private void ResizeImageEditPreview(Point pos)
+        {
+            if (_resizingImageEdit is null) return;
+
+            double newW = Math.Max(8, _imageResizeOriginalBounds.Width + (pos.X - _imageResizeStart.X));
+            double newH = Math.Max(8, _imageResizeOriginalBounds.Height + (pos.Y - _imageResizeStart.Y));
+            _resizingImageEdit.TargetBounds = new Rect(_imageResizeOriginalBounds.X, _imageResizeOriginalBounds.Y, newW, newH);
+
+            if (_selectionBorder is not null)
+            {
+                _selectionBorder.Width = newW + 8;
+                _selectionBorder.Height = newH + 8;
+            }
+            if (_imageResizeHandle is not null)
+            {
+                Canvas.SetLeft(_imageResizeHandle, _resizingImageEdit.TargetBounds.Right - 2);
+                Canvas.SetTop(_imageResizeHandle, _resizingImageEdit.TargetBounds.Bottom - 2);
+            }
+        }
+
         // ============================================================
         // Text box handling
         // ============================================================
@@ -2402,6 +2975,8 @@ namespace KillerPDF
                 AcceptsReturn = true,
                 Tag = pageIdx
             };
+            AutomationProperties.SetName(tb, "Annotation text");
+            AutomationProperties.SetHelpText(tb, "Type annotation text. Press Enter to save or Escape to cancel.");
             Canvas.SetLeft(tb, pos.X);
             Canvas.SetTop(tb, pos.Y);
             _annotationCanvas.Children.Add(tb);
@@ -2488,6 +3063,35 @@ namespace KillerPDF
             // Don't intercept keys when typing in a TextBox
             if (_activeTextBox is not null && _activeTextBox.IsFocused) return;
 
+            if (Keyboard.Modifiers == ModifierKeys.Alt)
+            {
+                var accessKey = e.SystemKey != Key.None ? e.SystemKey : e.Key;
+                switch (accessKey)
+                {
+                    case Key.O: Open_Click(this, e); break;
+                    case Key.W: CloseFile(); break;
+                    case Key.M: Merge_Click(this, e); break;
+                    case Key.E: Split_Click(this, e); break;
+                    case Key.D: Delete_Click(this, e); break;
+                    case Key.U: MoveUp_Click(this, e); break;
+                    case Key.N: MoveDown_Click(this, e); break;
+                    case Key.S: SaveAs_Click(this, e); break;
+                    case Key.F: SaveFlattened_Click(this, e); break;
+                    case Key.P: Print_Click(this, e); break;
+                    case Key.Q: SetTool(EditTool.Select); break;
+                    case Key.T: SetTool(EditTool.Text); break;
+                    case Key.H: SetTool(EditTool.Highlight); break;
+                    case Key.R: SetTool(EditTool.Draw); break;
+                    case Key.G: ToolSignature_Click(this, e); break;
+                    case Key.C: ToolCrop_Click(this, e); break;
+                    case Key.Z: Undo_Click(this, e); break;
+                    case Key.L: ClearAnnotations_Click(this, e); break;
+                    default: return;
+                }
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control)
             {
                 CopySelectedText();
@@ -2498,19 +3102,9 @@ namespace KillerPDF
                 SelectAllText();
                 e.Handled = true;
             }
-            else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                ToggleSearchBar();
-                e.Handled = true;
-            }
             else if (e.Key == Key.Escape && _searchBar is not null && _searchBar.Visibility == Visibility.Visible)
             {
                 CloseSearchBar();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.P && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                Print_Click(this, e);
                 e.Handled = true;
             }
             else if (e.Key == Key.Delete && _selectedAnnotation is not null)
@@ -2526,11 +3120,6 @@ namespace KillerPDF
             else if (e.Key == Key.W && Keyboard.Modifiers == ModifierKeys.Control)
             {
                 CloseFile();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                Open_Click(this, e);
                 e.Handled = true;
             }
         }
@@ -2624,6 +3213,38 @@ namespace KillerPDF
                         _annotationCanvas.Children.Add(etb);
                         break;
 
+                    case ImageEditAnnotation iea:
+                        var imageWhiteout = new Rectangle
+                        {
+                            Fill = Brushes.White,
+                            Width = iea.OriginalBounds.Width + 4,
+                            Height = iea.OriginalBounds.Height + 4,
+                            IsHitTestVisible = false
+                        };
+                        Canvas.SetLeft(imageWhiteout, iea.OriginalBounds.X - 2);
+                        Canvas.SetTop(imageWhiteout, iea.OriginalBounds.Y - 2);
+                        _annotationCanvas.Children.Add(imageWhiteout);
+
+                        if (!iea.IsDeleted)
+                        {
+                            var source = LoadImageEditBitmap(iea);
+                            if (source is not null)
+                            {
+                                var imgCtrl = new System.Windows.Controls.Image
+                                {
+                                    Source = source,
+                                    Width = iea.TargetBounds.Width,
+                                    Height = iea.TargetBounds.Height,
+                                    Stretch = Stretch.Fill,
+                                    IsHitTestVisible = false
+                                };
+                                Canvas.SetLeft(imgCtrl, iea.TargetBounds.X);
+                                Canvas.SetTop(imgCtrl, iea.TargetBounds.Y);
+                                _annotationCanvas.Children.Add(imgCtrl);
+                            }
+                        }
+                        break;
+
                     case SignatureAnnotation sa:
                         if (sa.ImageData is not null)
                         {
@@ -2679,6 +3300,35 @@ namespace KillerPDF
             }
         }
 
+        private static BitmapSource? LoadImageEditBitmap(ImageEditAnnotation edit)
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                if (!string.IsNullOrWhiteSpace(edit.ReplacementImagePath) && System.IO.File.Exists(edit.ReplacementImagePath))
+                {
+                    bmp.UriSource = new Uri(edit.ReplacementImagePath, UriKind.Absolute);
+                }
+                else if (!string.IsNullOrEmpty(edit.OriginalImageData))
+                {
+                    bmp.StreamSource = new MemoryStream(Convert.FromBase64String(edit.OriginalImageData));
+                }
+                else
+                {
+                    return null;
+                }
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                bmp.Freeze();
+                return bmp;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private void Undo_Click(object sender, RoutedEventArgs e)
         {
             int pageIdx = PageList.SelectedIndex;
@@ -2729,6 +3379,12 @@ namespace KillerPDF
 
         private void CloseFile()
         {
+            _openCancellationTokenSource?.Cancel();
+            _renderCancellationTokenSource?.Cancel();
+            _openCancellationTokenSource?.Dispose();
+            _renderCancellationTokenSource?.Dispose();
+            _openCancellationTokenSource = null;
+            _renderCancellationTokenSource = null;
             if (_doc is null) return;
             if (_isDirty)
             {
@@ -2741,12 +3397,18 @@ namespace KillerPDF
             _doc = null;
             _currentFile = null;
             _annotations.Clear();
-            _renderDims.Clear();
+            InvalidateRenderCache();
+            _contentEditor.ClearCache();
             _allSearchRects.Clear();
             _searchResultPages.Clear();
             _searchPageCursor = -1;
             PageList.Items.Clear();
-            if (FindName("PageImage") is System.Windows.Controls.Image img) img.Source = null;
+            if (FindName("PageImage") is System.Windows.Controls.Image img)
+            {
+                img.Source = null;
+                img.Width = double.NaN;
+                img.Height = double.NaN;
+            }
             _annotationCanvas.Children.Clear();
             FileNameLabel.Text = "";
             DropZone.Visibility = Visibility.Visible;
@@ -2754,6 +3416,8 @@ namespace KillerPDF
             CloseSearchBar();
             HideDrawSettings();
             HideSignaturePopup();
+            HideCropPopup();
+            ClearCropSelection();
             SetTool(EditTool.Select);
             if (_closeFileBtnRef != null) _closeFileBtnRef.IsEnabled = false;
             MarkDirty(false);
@@ -2766,10 +3430,10 @@ namespace KillerPDF
         // File toolbar handlers
         // ============================================================
 
-        private void Open_Click(object sender, RoutedEventArgs e)
+        private async void Open_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new OpenFileDialog { Filter = "PDF files|*.pdf", Title = "Open PDF" };
-            if (dlg.ShowDialog() == true) OpenFile(dlg.FileName);
+            if (dlg.ShowDialog() == true) await OpenFileAsync(dlg.FileName);
         }
 
         private void Merge_Click(object sender, RoutedEventArgs e)
@@ -2868,7 +3532,7 @@ namespace KillerPDF
             PageList.SelectedIndex = idx + 1;
         }
 
-        private void SaveAs_Click(object sender, RoutedEventArgs e)
+        private async void SaveAs_Click(object sender, RoutedEventArgs e)
         {
             if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
@@ -2876,119 +3540,122 @@ namespace KillerPDF
             if (dlg.ShowDialog() != true) return;
             try
             {
+                SetFileOperationBusy(true, "Saving...");
+                var doc = _doc;
                 bool hasAnnotations = _annotations.Values.Any(list => list.Count > 0);
+                string targetFile = dlg.FileName;
+                string status;
 
                 if (hasAnnotations)
                 {
                     var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                         $"killerpdf_clean_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(tempClean);
+                    await _pdfDocumentService.SaveAsync(() => doc.Save(tempClean), CancellationToken.None);
                     DrawAnnotationsOnDocument();
-                    _doc.Save(dlg.FileName);
-                    _doc.Close();
-                    _doc = PdfReader.Open(tempClean, PdfDocumentOpenMode.Modify);
-                    _currentFile = tempClean;
-                    MarkDirty(false);
-                    SetStatus($"Saved with annotations to {System.IO.Path.GetFileName(dlg.FileName)}");
+                    ExceptionDispatchInfo? saveError = null;
+                    try
+                    {
+                        await _pdfDocumentService.SaveAsync(() => doc.Save(targetFile), CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        saveError = ExceptionDispatchInfo.Capture(ex);
+                    }
+
+                    doc = await RestoreDocumentAsync(doc, tempClean, CancellationToken.None);
+                    saveError?.Throw();
+                    status = $"Saved with annotations to {System.IO.Path.GetFileName(targetFile)}";
                 }
                 else
                 {
-                    _doc.Save(dlg.FileName);
-                    MarkDirty(false);
-                    SetStatus($"Saved to {System.IO.Path.GetFileName(dlg.FileName)}");
+                    await _pdfDocumentService.SaveAsync(() => doc.Save(targetFile), CancellationToken.None);
+                    status = $"Saved to {System.IO.Path.GetFileName(targetFile)}";
                 }
+
+                MarkDirty(false);
+                SetStatus(status);
             }
             catch (Exception ex)
             {
+                SetFileOperationBusy(false);
                 KillerDialog.Show(this, $"Save failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetFileOperationBusy(false);
             }
         }
 
-        private void SaveFlattened_Click(object sender, RoutedEventArgs e)
+        private async void SaveFlattened_Click(object sender, RoutedEventArgs e)
         {
             if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
             var dlg = new SaveFileDialog { Filter = "PDF files|*.pdf", Title = "Save Flattened PDF" };
             if (dlg.ShowDialog() != true) return;
-            SetStatus("Flattening...");
+            SetFileOperationBusy(true, "Flattening...");
             try
             {
-                // Burn any pending annotations into a temp source for rasterization
+                var doc = _doc;
+                var pageSizes = GetPageSizes(doc);
                 string sourcePath;
                 bool hasAnnotations = _annotations.Values.Any(list => list.Count > 0);
                 if (hasAnnotations)
                 {
                     var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_clean_{Guid.NewGuid():N}.pdf");
                     var tempBurned = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_burned_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(tempClean);
+                    await _pdfDocumentService.SaveAsync(() => doc.Save(tempClean), CancellationToken.None);
                     DrawAnnotationsOnDocument();
-                    _doc.Save(tempBurned);
-                    _doc.Close();
-                    _doc = PdfReader.Open(tempClean, PdfDocumentOpenMode.Modify);
-                    _currentFile = tempClean;
+                    ExceptionDispatchInfo? saveError = null;
+                    try
+                    {
+                        await _pdfDocumentService.SaveAsync(() => doc.Save(tempBurned), CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        saveError = ExceptionDispatchInfo.Capture(ex);
+                    }
+
+                    doc = await RestoreDocumentAsync(doc, tempClean, CancellationToken.None);
+                    saveError?.Throw();
                     sourcePath = tempBurned;
                 }
                 else
                 {
                     var temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_src_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(temp);
+                    await _pdfDocumentService.SaveAsync(() => doc.Save(temp), CancellationToken.None);
                     sourcePath = temp;
                 }
 
-                int pageCount = _doc.PageCount;
-
-                // Calculate max render dimensions across all pages at 150 DPI
-                int maxW = 1, maxH = 1;
-                for (int i = 0; i < pageCount; i++)
-                {
-                    var p = _doc.Pages[i];
-                    int pw = (int)(p.Width.Point * 150 / 72.0);
-                    int ph = (int)(p.Height.Point * 150 / 72.0);
-                    if (pw > maxW) maxW = pw;
-                    if (ph > maxH) maxH = ph;
-                }
-
-                using var outDoc = new PdfDocument();
-                using (var docReader = DocLib.Instance.GetDocReader(sourcePath, new PageDimensions(maxW, maxH)))
-                {
-                    for (int i = 0; i < pageCount; i++)
-                    {
-                        using var pr = docReader.GetPageReader(i);
-                        var bgra = pr.GetImage();
-                        int rw = pr.GetPageWidth();
-                        int rh = pr.GetPageHeight();
-
-                        // Encode rendered BGRA pixels to PNG in memory
-                        var bmp = new WriteableBitmap(rw, rh, 96, 96, PixelFormats.Bgra32, null);
-                        bmp.WritePixels(new Int32Rect(0, 0, rw, rh), bgra, rw * 4, 0);
-                        byte[] pngBytes;
-                        using (var ms = new MemoryStream())
-                        {
-                            var enc = new PngBitmapEncoder();
-                            enc.Frames.Add(BitmapFrame.Create(bmp));
-                            enc.Save(ms);
-                            pngBytes = ms.ToArray();
-                        }
-
-                        // Add page at original PDF dimensions, fill with rasterized image
-                        var origPage = _doc.Pages[i];
-                        var newPage = outDoc.AddPage();
-                        newPage.Width = origPage.Width;
-                        newPage.Height = origPage.Height;
-                        using var xi = XImage.FromStream(() => new MemoryStream(pngBytes));
-                        using var gfx = XGraphics.FromPdfPage(newPage);
-                        gfx.DrawImage(xi, 0, 0, newPage.Width.Point, newPage.Height.Point);
-                    }
-                }
-
-                outDoc.Save(dlg.FileName);
+                await _pdfDocumentService.SaveFlattenedAsync(sourcePath, dlg.FileName, pageSizes, CancellationToken.None);
                 MarkDirty(false);
                 SetStatus($"Flattened PDF saved to {System.IO.Path.GetFileName(dlg.FileName)}");
             }
             catch (Exception ex)
             {
+                SetFileOperationBusy(false);
                 KillerDialog.Show(this, $"Flatten failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+            finally
+            {
+                SetFileOperationBusy(false);
+            }
+        }
+
+        private async Task<PdfDocument> RestoreDocumentAsync(PdfDocument currentDoc, string cleanPath, CancellationToken cancellationToken)
+        {
+            var restoredDoc = await _pdfDocumentService.OpenPdfSharpAsync(cleanPath, PdfDocumentOpenMode.Modify, cancellationToken);
+            currentDoc.Close();
+            _doc = restoredDoc;
+            _currentFile = cleanPath;
+            return restoredDoc;
+        }
+
+        private static IReadOnlyList<PdfPageSize> GetPageSizes(PdfDocument doc)
+        {
+            var pageSizes = new List<PdfPageSize>(doc.PageCount);
+            for (int i = 0; i < doc.PageCount; i++)
+                pageSizes.Add(new PdfPageSize(doc.Pages[i].Width.Point, doc.Pages[i].Height.Point));
+            return pageSizes;
         }
 
         private void Print_Click(object sender, RoutedEventArgs e)
@@ -2998,37 +3665,29 @@ namespace KillerPDF
             try
             {
                 bool hasAnnotations = _annotations.Values.Any(list => list.Count > 0);
-                string printPath;
-
-                if (hasAnnotations)
-                {
-                    // Save a temp copy with annotations flattened for printing
-                    var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_clean_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(tempClean);
-                    DrawAnnotationsOnDocument();
-                    printPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_print_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(printPath);
-                    // Restore clean state
-                    _doc.Close();
-                    _doc = PdfReader.Open(tempClean, PdfDocumentOpenMode.Modify);
-                    _currentFile = tempClean;
-                }
-                else
-                {
-                    printPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_print_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(printPath);
-                }
-
-                Process.Start(new ProcessStartInfo(printPath) { Verb = "print", UseShellExecute = true });
-                SetStatus("Sent to printer");
+                new PrintService().Print(this, _doc, _currentFile, hasAnnotations, DrawAnnotationsOnDocument, ReloadPrintedDocument, SetStatus);
             }
             catch (Exception ex)
             {
                 KillerDialog.Show(this, $"Print failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void ReloadPrintedDocument(string path)
+        {
+            var previous = _doc;
+            PdfDocument reopened;
+            try
+            {
+                reopened = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
+            }
+            catch (Exception ex) when (KillerPDF.Services.PdfDocumentService.IsOwnerPasswordException(ex))
+            {
+                reopened = PdfReader.Open(path, PdfDocumentOpenMode.ReadOnly);
+            }
+            _doc = reopened;
+            _currentFile = path;
+            previous?.Close();
         }
 
         // ============================================================
@@ -3093,7 +3752,9 @@ namespace KillerPDF
                             break;
 
                         case TextEditAnnotation tea:
-                            // White-out original text area
+                            // PdfSharpCore cannot surgically edit existing PDF content streams here.
+                            // Existing text/image edits are approximated by painting a white rectangle
+                            // over the original region, then drawing replacement content on top.
                             var whiteRect = new XSolidBrush(XColors.White);
                             gfx.DrawRectangle(whiteRect,
                                 (tea.OriginalBounds.X - 2) * sx, (tea.OriginalBounds.Y - 2) * sy,
@@ -3102,6 +3763,37 @@ namespace KillerPDF
                             var editFont = new XFont(tea.FontName, tea.FontSize * sy);
                             double ety = tea.Position.Y * sy + tea.FontSize * sy;
                             gfx.DrawString(tea.NewContent, editFont, XBrushes.Black, tea.Position.X * sx, ety);
+                            break;
+
+                        case ImageEditAnnotation iea:
+                            var imageWhiteRect = new XSolidBrush(XColors.White);
+                            gfx.DrawRectangle(imageWhiteRect,
+                                (iea.OriginalBounds.X - 2) * sx, (iea.OriginalBounds.Y - 2) * sy,
+                                (iea.OriginalBounds.Width + 4) * sx, (iea.OriginalBounds.Height + 4) * sy);
+                            if (!iea.IsDeleted)
+                            {
+                                try
+                                {
+                                    XImage? xImg = null;
+                                    if (!string.IsNullOrWhiteSpace(iea.ReplacementImagePath) && System.IO.File.Exists(iea.ReplacementImagePath))
+                                    {
+                                        xImg = XImage.FromFile(iea.ReplacementImagePath);
+                                    }
+                                    else if (!string.IsNullOrEmpty(iea.OriginalImageData))
+                                    {
+                                        var imageBytes = Convert.FromBase64String(iea.OriginalImageData);
+                                        xImg = XImage.FromStream(() => new MemoryStream(imageBytes));
+                                    }
+
+                                    if (xImg is not null)
+                                    {
+                                        gfx.DrawImage(xImg,
+                                            iea.TargetBounds.X * sx, iea.TargetBounds.Y * sy,
+                                            iea.TargetBounds.Width * sx, iea.TargetBounds.Height * sy);
+                                    }
+                                }
+                                catch { /* skip broken image edit */ }
+                            }
                             break;
 
                         case SignatureAnnotation sa:
@@ -3150,7 +3842,8 @@ namespace KillerPDF
         {
             if (_doc is null || _currentFile is null) return;
             _annotations.Clear();
-            _renderDims.Clear();
+            InvalidateRenderCache();
+            _contentEditor.ClearCache();
             ClearSelection();
             MarkDirty();
             var doc = _doc;
@@ -3172,17 +3865,20 @@ namespace KillerPDF
         // Zoom
         // ============================================================
 
+        private enum ZoomChange
+        {
+            In,
+            Out,
+            Reset
+        }
+
         private void PagePreview_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (Keyboard.Modifiers == ModifierKeys.Control)
             {
                 e.Handled = true;
-                _zoomLevel = e.Delta > 0
-                    ? Math.Min(ZoomMax, _zoomLevel + ZoomStep)
-                    : Math.Max(ZoomMin, _zoomLevel - ZoomStep);
-                ApplyZoom();
-                SyncZoomBox();
-                SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc?.PageCount} - {_zoomLevel * 100:F0}%");
+                if (e.Delta > 0) Zoom.ZoomIn();
+                else Zoom.ZoomOut();
                 return;
             }
 
@@ -3210,58 +3906,68 @@ namespace KillerPDF
             }
         }
 
+        private void Zoom_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ZoomViewModel.ZoomLevel))
+                ApplyZoom();
+        }
+
+        private void ChangeZoomByCommand(ZoomChange change)
+        {
+            switch (change)
+            {
+                case ZoomChange.In:
+                    Zoom.ZoomIn();
+                    break;
+                case ZoomChange.Out:
+                    Zoom.ZoomOut();
+                    break;
+                case ZoomChange.Reset:
+                    Zoom.Reset();
+                    break;
+            }
+        }
+
+        private void ZoomIn_Click(object sender, RoutedEventArgs e) => Zoom.ZoomIn();
+
+        private void ZoomOut_Click(object sender, RoutedEventArgs e) => Zoom.ZoomOut();
+
+        private void ResetZoom_Click(object sender, RoutedEventArgs e) => Zoom.Reset();
+
         private void ApplyZoom()
         {
             if (_pageContentGrid.LayoutTransform is ScaleTransform st)
             {
-                st.ScaleX = _zoomLevel;
-                st.ScaleY = _zoomLevel;
+                st.ScaleX = Zoom.ZoomLevel;
+                st.ScaleY = Zoom.ZoomLevel;
             }
+
+            CommitActiveTextBox();
+            SaveZoomSetting();
+
+            if (PageList.SelectedIndex >= 0 && _doc != null)
+                RenderPage(PageList.SelectedIndex);
         }
 
-        private void ResetZoom()
+        private void SaveZoomSetting()
         {
-            _zoomLevel = 1.0;
-            ApplyZoom();
-        }
-
-        private void SyncZoomBox()
-        {
-            if (_zoomBox is null) return;
-            string target = $"{_zoomLevel * 100:F0}%";
-            _zoomBox.SelectionChanged -= ZoomBox_SelectionChanged;
-            foreach (ComboBoxItem item in _zoomBox.Items)
+            try
             {
-                if (item.Content?.ToString() == target)
-                {
-                    _zoomBox.SelectedItem = item;
-                    _zoomBox.SelectionChanged += ZoomBox_SelectionChanged;
-                    return;
-                }
+                Properties.Settings.Default.LastZoomLevel = Zoom.ZoomLevel;
+                Properties.Settings.Default.Save();
             }
-            // No preset match — clear dropdown selection and show free-form percentage
-            _zoomBox.SelectedItem = null;
-            _zoomBox.Text = target;
-            _zoomBox.SelectionChanged += ZoomBox_SelectionChanged;
+            catch
+            {
+                // Non-critical user preference; rendering should continue even if settings cannot be saved.
+            }
         }
 
         private void ZoomBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_zoomBox?.SelectedItem is not ComboBoxItem item) return;
-            string? tag = item.Tag?.ToString();
-            if (tag is null) return;
-
-            if (tag == "fitwidth") { FitToWidth(); return; }
-            if (tag == "fitpage")  { FitToPage();  return; }
-
-            if (double.TryParse(tag, System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out double z))
-            {
-                _zoomLevel = Math.Max(ZoomMin, Math.Min(ZoomMax, z));
-                ApplyZoom();
-                if (PageList.SelectedIndex >= 0 && _doc != null)
-                    SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc.PageCount} - {_zoomLevel * 100:F0}%");
-            }
+            if (_zoomBox?.SelectedItem is not ZoomLevelOption option) return;
+            if (option.IsFitWidth) { FitToWidth(); return; }
+            if (option.IsFitPage) { FitToPage(); return; }
+            if (option.ZoomLevel is double zoom) Zoom.SetZoomLevel(zoom);
         }
 
         private void FitToWidth()
@@ -3269,23 +3975,24 @@ namespace KillerPDF
             if (PageImage.Source is null || PageImage.ActualWidth <= 0) return;
             double viewW = PagePreviewPanel.ActualWidth - 40;
             if (viewW <= 0) return;
-            _zoomLevel = Math.Max(ZoomMin, Math.Min(ZoomMax, viewW / PageImage.ActualWidth));
-            ApplyZoom();
-            if (PageList.SelectedIndex >= 0 && _doc != null)
-                SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc.PageCount} - Fit Width ({_zoomLevel * 100:F0}%)");
+            Zoom.SetZoomLevel(viewW / PageImage.ActualWidth);
         }
 
         private void FitToPage()
         {
             if (PageImage.Source is null || PageImage.ActualWidth <= 0 || PageImage.ActualHeight <= 0) return;
-            double viewW = PagePreviewPanel.ActualWidth  - 40;
+            double viewW = PagePreviewPanel.ActualWidth - 40;
             double viewH = PagePreviewPanel.ActualHeight - 40;
             if (viewW <= 0 || viewH <= 0) return;
-            _zoomLevel = Math.Max(ZoomMin, Math.Min(ZoomMax,
-                Math.Min(viewW / PageImage.ActualWidth, viewH / PageImage.ActualHeight)));
-            ApplyZoom();
-            if (PageList.SelectedIndex >= 0 && _doc != null)
-                SetStatus($"Page {PageList.SelectedIndex + 1} of {_doc.PageCount} - Fit Page ({_zoomLevel * 100:F0}%)");
+            Zoom.SetZoomLevel(Math.Min(viewW / PageImage.ActualWidth, viewH / PageImage.ActualHeight));
+        }
+
+        private void PageContentGrid_ManipulationDelta(object sender, ManipulationDeltaEventArgs e)
+        {
+            double scale = (e.DeltaManipulation.Scale.X + e.DeltaManipulation.Scale.Y) / 2.0;
+            if (Math.Abs(scale - 1.0) < 0.01) return;
+            Zoom.SetZoomLevel(Zoom.ZoomLevel * scale);
+            e.Handled = true;
         }
 
         // ============================================================
@@ -3298,13 +4005,13 @@ namespace KillerPDF
             e.Handled = true;
         }
 
-        private void DropZone_Drop(object sender, DragEventArgs e)
+        private async void DropZone_Drop(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 var files = (string[])e.Data.GetData(DataFormats.FileDrop)!;
                 if (files.Length > 0 && files[0].EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
-                    OpenFile(files[0]);
+                    await OpenFileAsync(files[0]);
             }
         }
 
@@ -3370,8 +4077,8 @@ namespace KillerPDF
                 CommitActiveTextBox();
                 ClearSelection();
                 ClearTextSelection();
+                ClearCropSelection();
                 RenderPage(PageList.SelectedIndex);
-                ApplyZoom();
                 // Re-highlight search results on this page if a search is active
                 if (_searchBar is not null && _searchBar.Visibility == Visibility.Visible
                     && _allSearchRects.Count > 0)
