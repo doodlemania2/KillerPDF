@@ -90,6 +90,9 @@ namespace KillerPDF
         private CheckBox? _cropApplyAllCheck;
         private static readonly string SignatureDir = AppDomain.CurrentDomain.BaseDirectory;
         private static readonly string SignatureFile = System.IO.Path.Combine(SignatureDir, "signatures.json");
+        private static readonly SolidColorBrush SignatureBorderBrush = FrozenSolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44));
+        private static readonly SolidColorBrush DialogCloseNormalBrush = FrozenSolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
+        private static readonly SolidColorBrush DialogCloseHoverBrush = FrozenSolidColorBrush(Color.FromRgb(0xef, 0x44, 0x44));
 
         // Manual element refs (XAML codegen doesn't resolve these)
         private Canvas _annotationCanvas = null!;
@@ -150,6 +153,13 @@ namespace KillerPDF
                 if (args.Length > 1 && System.IO.File.Exists(args[1]))
                     await OpenFileAsync(args[1]);
             };
+        }
+
+        private static SolidColorBrush FrozenSolidColorBrush(Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            if (brush.CanFreeze) brush.Freeze();
+            return brush;
         }
 
         private bool ShouldIgnoreGlobalShortcut() => _activeTextBox is not null && _activeTextBox.IsFocused;
@@ -517,7 +527,7 @@ namespace KillerPDF
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22))
+                Background = FrozenSolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22))
             };
             var sp = new StackPanel { Margin = new Thickness(20, 16, 20, 16) };
             sp.Children.Add(new TextBlock
@@ -574,7 +584,7 @@ namespace KillerPDF
                     var border = new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
+                        BorderBrush = FrozenSolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
                         BorderThickness = new Thickness(1),
                         Child = img
                     };
@@ -836,10 +846,10 @@ namespace KillerPDF
                 var swatch = new Border
                 {
                     Width = 18, Height = 18,
-                    Background = new SolidColorBrush(color),
+                    Background = FrozenSolidColorBrush(color),
                     BorderBrush = color == activeColor
                         ? (SolidColorBrush)FindResource("AccentGreen")
-                        : new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
+                        : FrozenSolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
                     BorderThickness = new Thickness(color == activeColor ? 2 : 1),
                     CornerRadius = new CornerRadius(3),
                     Margin = new Thickness(1),
@@ -942,7 +952,7 @@ namespace KillerPDF
 
             _drawSettingsBar = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
+                Background = FrozenSolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
                 BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
                 BorderThickness = new Thickness(0, 0, 0, 1),
                 HorizontalAlignment = HorizontalAlignment.Left,
@@ -1121,7 +1131,7 @@ namespace KillerPDF
                     var item = new Border
                     {
                         Background = Brushes.White,
-                        BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
+                        BorderBrush = SignatureBorderBrush,
                         BorderThickness = new Thickness(1),
                         CornerRadius = new CornerRadius(3),
                         Margin = new Thickness(4, 2, 4, 2),
@@ -1138,10 +1148,14 @@ namespace KillerPDF
                         {
                             var imgBytes = Convert.FromBase64String(sigCopy.ImageData);
                             var bmpImg = new System.Windows.Media.Imaging.BitmapImage();
-                            bmpImg.BeginInit();
-                            bmpImg.StreamSource = new System.IO.MemoryStream(imgBytes);
-                            bmpImg.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                            bmpImg.EndInit();
+                            using (var imageStream = new System.IO.MemoryStream(imgBytes))
+                            {
+                                bmpImg.BeginInit();
+                                bmpImg.StreamSource = imageStream;
+                                bmpImg.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                                bmpImg.EndInit();
+                            }
+                            if (bmpImg.CanFreeze) bmpImg.Freeze();
                             item.Child = new System.Windows.Controls.Image
                             {
                                 Source = bmpImg,
@@ -1174,7 +1188,7 @@ namespace KillerPDF
                     item.MouseEnter += (s, e) =>
                         ((Border)s!).BorderBrush = (SolidColorBrush)FindResource("AccentGreen");
                     item.MouseLeave += (s, e) =>
-                        ((Border)s!).BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44));
+                        ((Border)s!).BorderBrush = SignatureBorderBrush;
 
                     // Wrap in grid with delete button
                     var itemGrid = new Grid();
@@ -1188,7 +1202,7 @@ namespace KillerPDF
                         HorizontalAlignment = HorizontalAlignment.Right,
                         VerticalAlignment = VerticalAlignment.Top,
                         Margin = new Thickness(0, 0, 2, 0),
-                        Background = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
+                        Background = FrozenSolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
                         Foreground = (SolidColorBrush)FindResource("DangerRed"),
                         BorderThickness = new Thickness(0),
                         Cursor = Cursors.Hand,
@@ -1256,7 +1270,7 @@ namespace KillerPDF
             {
                 Content = "Import Image",
                 Style = (Style)FindResource("DarkButton"),
-                Background = new SolidColorBrush(Color.FromRgb(0x1e, 0x3a, 0x2e)),
+                Background = FrozenSolidColorBrush(Color.FromRgb(0x1e, 0x3a, 0x2e)),
                 Foreground = (SolidColorBrush)FindResource("AccentGreen"),
                 BorderBrush = (SolidColorBrush)FindResource("AccentGreenDim"),
                 BorderThickness = new Thickness(1),
@@ -1275,7 +1289,7 @@ namespace KillerPDF
 
             _signaturePopup = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(0x1e, 0x1e, 0x1e)),
+                Background = FrozenSolidColorBrush(Color.FromRgb(0x1e, 0x1e, 0x1e)),
                 BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
@@ -1351,8 +1365,8 @@ namespace KillerPDF
             // Outer chrome
             var outerChrome = new Border
             {
-                Background      = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
-                BorderBrush     = new SolidColorBrush(Color.FromRgb(0x22, 0x54, 0x3d)),
+                Background      = FrozenSolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
+                BorderBrush     = FrozenSolidColorBrush(Color.FromRgb(0x22, 0x54, 0x3d)),
                 BorderThickness = new Thickness(1),
                 CornerRadius    = new CornerRadius(6)
             };
@@ -1361,7 +1375,7 @@ namespace KillerPDF
             // Title bar
             var titleBar = new Border
             {
-                Background   = new SolidColorBrush(Color.FromRgb(0x24, 0x24, 0x24)),
+                Background   = FrozenSolidColorBrush(Color.FromRgb(0x24, 0x24, 0x24)),
                 Padding      = new Thickness(14, 8, 8, 8),
                 CornerRadius = new CornerRadius(5, 5, 0, 0)
             };
@@ -1372,7 +1386,7 @@ namespace KillerPDF
             var titleText = new TextBlock
             {
                 Text       = "Create Signature",
-                Foreground = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)),
+                Foreground = FrozenSolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)),
                 FontWeight = FontWeights.SemiBold,
                 FontSize   = 13,
                 FontFamily = new FontFamily("Consolas"),
@@ -1386,13 +1400,13 @@ namespace KillerPDF
                 FontSize        = 10,
                 Width           = 28, Height = 28,
                 Background      = System.Windows.Media.Brushes.Transparent,
-                Foreground      = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
+                Foreground      = DialogCloseNormalBrush,
                 BorderThickness = new Thickness(0),
                 Cursor          = Cursors.Hand,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            closeWinBtn.MouseEnter += (_, _2) => closeWinBtn.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x44, 0x44));
-            closeWinBtn.MouseLeave += (_, _2) => closeWinBtn.Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
+            closeWinBtn.MouseEnter += (_, _2) => closeWinBtn.Foreground = DialogCloseHoverBrush;
+            closeWinBtn.MouseLeave += (_, _2) => closeWinBtn.Foreground = DialogCloseNormalBrush;
             closeWinBtn.Click += (_, _2) => win.Close();
             Grid.SetColumn(closeWinBtn, 1);
             titleGrid.Children.Add(titleText);
@@ -1422,7 +1436,7 @@ namespace KillerPDF
             var placeholder = new TextBlock
             {
                 Text = "Draw your signature here",
-                Foreground = new SolidColorBrush(Color.FromRgb(0xbb, 0xbb, 0xbb)),
+                Foreground = FrozenSolidColorBrush(Color.FromRgb(0xbb, 0xbb, 0xbb)),
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 14, FontStyle = FontStyles.Italic,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -1493,9 +1507,9 @@ namespace KillerPDF
                 Style = (Style)FindResource("DarkButton"),
                 Padding = new Thickness(16, 6, 16, 6),
                 Margin = new Thickness(0, 0, 8, 0),
-                Background = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
-                Foreground = new SolidColorBrush(Color.FromRgb(0xe0, 0xe0, 0xe0)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
+                Background = FrozenSolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)),
+                Foreground = FrozenSolidColorBrush(Color.FromRgb(0xe0, 0xe0, 0xe0)),
+                BorderBrush = FrozenSolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
                 BorderThickness = new Thickness(1),
                 FontFamily = new FontFamily("Consolas")
             };
@@ -1512,9 +1526,9 @@ namespace KillerPDF
                 Content = "Save Signature",
                 Style = (Style)FindResource("DarkButton"),
                 Padding = new Thickness(16, 6, 16, 6),
-                Background = new SolidColorBrush(Color.FromRgb(0x22, 0x54, 0x3d)),
-                Foreground = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)),
+                Background = FrozenSolidColorBrush(Color.FromRgb(0x22, 0x54, 0x3d)),
+                Foreground = FrozenSolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)),
+                BorderBrush = FrozenSolidColorBrush(Color.FromRgb(0x4a, 0xde, 0x80)),
                 BorderThickness = new Thickness(1),
                 FontFamily = new FontFamily("Consolas"),
                 FontWeight = FontWeights.SemiBold
@@ -1573,7 +1587,12 @@ namespace KillerPDF
 
             try
             {
-                var bmp = new System.Windows.Media.Imaging.BitmapImage(new Uri(dlg.FileName));
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(dlg.FileName);
+                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                if (bmp.CanFreeze) bmp.Freeze();
                 byte[] pngBytes;
                 using (var ms = new System.IO.MemoryStream())
                 {
@@ -1679,8 +1698,8 @@ namespace KillerPDF
                         _selectStart = pos;
                         _selectRect = new Rectangle
                         {
-                            Fill = new SolidColorBrush(Color.FromArgb(40, 74, 130, 255)),
-                            Stroke = new SolidColorBrush(Color.FromArgb(120, 74, 130, 255)),
+                            Fill = FrozenSolidColorBrush(Color.FromArgb(40, 74, 130, 255)),
+                            Stroke = FrozenSolidColorBrush(Color.FromArgb(120, 74, 130, 255)),
                             StrokeThickness = 1,
                             Width = 0, Height = 0,
                             IsHitTestVisible = false
@@ -1717,7 +1736,7 @@ namespace KillerPDF
                     _drawStart = pos;
                     var rect = new Rectangle
                     {
-                        Fill = new SolidColorBrush(_highlightColor),
+                        Fill = FrozenSolidColorBrush(_highlightColor),
                         Width = 0, Height = 0
                     };
                     Canvas.SetLeft(rect, pos.X);
@@ -1758,7 +1777,7 @@ namespace KillerPDF
                     _activeInk.Points.Add(pos);
                     var poly = new Polyline
                     {
-                        Stroke = new SolidColorBrush(_drawColor),
+                        Stroke = FrozenSolidColorBrush(_drawColor),
                         StrokeThickness = _drawWidth,
                         StrokeLineJoin = PenLineJoin.Round,
                         StrokeStartLineCap = PenLineCap.Round,
@@ -2119,7 +2138,7 @@ namespace KillerPDF
             {
                 BorderBrush = (SolidColorBrush)FindResource("AccentGreen"),
                 BorderThickness = new Thickness(2),
-                Background = new SolidColorBrush(Color.FromArgb(20, 74, 222, 128)),
+                Background = FrozenSolidColorBrush(Color.FromArgb(20, 74, 222, 128)),
                 Width = bounds.Width + 8,
                 Height = bounds.Height + 8,
                 IsHitTestVisible = false
@@ -2205,8 +2224,8 @@ namespace KillerPDF
                 ClearTextSelection();
                 _selectRect = new Rectangle
                 {
-                    Fill = new SolidColorBrush(Color.FromArgb(30, 74, 130, 255)),
-                    Stroke = new SolidColorBrush(Color.FromArgb(80, 74, 130, 255)),
+                    Fill = FrozenSolidColorBrush(Color.FromArgb(30, 74, 130, 255)),
+                    Stroke = FrozenSolidColorBrush(Color.FromArgb(80, 74, 130, 255)),
                     StrokeThickness = 1,
                     Width = _annotationCanvas.Width,
                     Height = _annotationCanvas.Height,
@@ -2345,8 +2364,8 @@ namespace KillerPDF
                     Height = 28,
                     FontFamily = new FontFamily("Segoe UI"),
                     FontSize = 13,
-                    Background = new SolidColorBrush(Color.FromRgb(0x2a, 0x2a, 0x2a)),
-                    Foreground = new SolidColorBrush(Color.FromRgb(0xe0, 0xe0, 0xe0)),
+                    Background = FrozenSolidColorBrush(Color.FromRgb(0x2a, 0x2a, 0x2a)),
+                    Foreground = FrozenSolidColorBrush(Color.FromRgb(0xe0, 0xe0, 0xe0)),
                     BorderBrush = (SolidColorBrush)FindResource("AccentGreen"),
                     BorderThickness = new Thickness(1),
                     Padding = new Thickness(6, 2, 6, 2),
@@ -2403,7 +2422,7 @@ namespace KillerPDF
 
                 _searchBar = new Border
                 {
-                    Background = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
+                    Background = FrozenSolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
                     BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
                     BorderThickness = new Thickness(0, 0, 0, 1),
                     HorizontalAlignment = HorizontalAlignment.Right,
@@ -2622,8 +2641,8 @@ namespace KillerPDF
             double ch = (top - bottom) * sy;
             var rect = new Rectangle
             {
-                Fill = new SolidColorBrush(Color.FromArgb(80, 255, 165, 0)),
-                Stroke = new SolidColorBrush(Color.FromArgb(160, 255, 165, 0)),
+                Fill = FrozenSolidColorBrush(Color.FromArgb(80, 255, 165, 0)),
+                Stroke = FrozenSolidColorBrush(Color.FromArgb(160, 255, 165, 0)),
                 StrokeThickness = 1,
                 Width = Math.Max(cw, 4),
                 Height = Math.Max(ch, 4),
@@ -2671,7 +2690,7 @@ namespace KillerPDF
                 var tb = new TextBox
                 {
                     Text = hit.Text,
-                    Background = new SolidColorBrush(Color.FromArgb(240, 255, 255, 255)),
+                    Background = FrozenSolidColorBrush(Color.FromArgb(240, 255, 255, 255)),
                     Foreground = Brushes.Black,
                     BorderBrush = (SolidColorBrush)FindResource("AccentGreen"),
                     BorderThickness = new Thickness(2),
@@ -2944,7 +2963,7 @@ namespace KillerPDF
         {
             var tb = new TextBox
             {
-                Background = new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)),
+                Background = FrozenSolidColorBrush(Color.FromArgb(230, 255, 255, 255)),
                 Foreground = Brushes.Black,
                 BorderBrush = (SolidColorBrush)FindResource("AccentGreen"),
                 BorderThickness = new Thickness(1),
@@ -3147,7 +3166,7 @@ namespace KillerPDF
                     case HighlightAnnotation ha:
                         var rect = new Rectangle
                         {
-                            Fill = new SolidColorBrush(ha.GetColor()),
+                            Fill = FrozenSolidColorBrush(ha.GetColor()),
                             Width = ha.Bounds.Width,
                             Height = ha.Bounds.Height
                         };
@@ -3159,7 +3178,7 @@ namespace KillerPDF
                         if (ia.Points.Count < 2) continue;
                         var poly = new Polyline
                         {
-                            Stroke = new SolidColorBrush(ia.GetColor()),
+                            Stroke = FrozenSolidColorBrush(ia.GetColor()),
                             StrokeThickness = ia.StrokeWidth,
                             StrokeLineJoin = PenLineJoin.Round,
                             StrokeStartLineCap = PenLineCap.Round,
@@ -3234,10 +3253,14 @@ namespace KillerPDF
                             {
                                 var imgBytes = Convert.FromBase64String(sa.ImageData);
                                 var bmp = new System.Windows.Media.Imaging.BitmapImage();
-                                bmp.BeginInit();
-                                bmp.StreamSource = new System.IO.MemoryStream(imgBytes);
-                                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                                bmp.EndInit();
+                                using (var imageStream = new System.IO.MemoryStream(imgBytes))
+                                {
+                                    bmp.BeginInit();
+                                    bmp.StreamSource = imageStream;
+                                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                                    bmp.EndInit();
+                                }
+                                if (bmp.CanFreeze) bmp.Freeze();
                                 var imgCtrl = new System.Windows.Controls.Image
                                 {
                                     Source = bmp,
@@ -3345,7 +3368,7 @@ namespace KillerPDF
             if (_saveAsBtnRef != null)
             {
                 _saveAsBtnRef.Foreground = dirty
-                    ? new SolidColorBrush(Color.FromRgb(0xff, 0xa5, 0x00)) // orange = unsaved
+                    ? FrozenSolidColorBrush(Color.FromRgb(0xff, 0xa5, 0x00)) // orange = unsaved
                     : (SolidColorBrush)FindResource("AccentGreen");
             }
         }
@@ -4084,6 +4107,13 @@ namespace KillerPDF
         private static readonly System.Windows.Media.Color _greenHov  = System.Windows.Media.Color.FromRgb(0x2d, 0x6a, 0x4f);
         private static readonly System.Windows.Media.Color _hover     = System.Windows.Media.Color.FromRgb(0x2e, 0x2e, 0x2e);
 
+        private static SolidColorBrush FrozenSolidColorBrush(System.Windows.Media.Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            if (brush.CanFreeze) brush.Freeze();
+            return brush;
+        }
+
         public static MessageBoxResult Show(
             Window? owner,
             string message,
@@ -4110,8 +4140,8 @@ namespace KillerPDF
 
             var outerBorder = new Border
             {
-                Background      = new SolidColorBrush(_dark),
-                BorderBrush     = new SolidColorBrush(_greenDim),
+                Background      = FrozenSolidColorBrush(_dark),
+                BorderBrush     = FrozenSolidColorBrush(_greenDim),
                 BorderThickness = new Thickness(1),
                 CornerRadius    = new CornerRadius(6)
             };
@@ -4121,7 +4151,7 @@ namespace KillerPDF
             // Title bar
             var titleBar = new Border
             {
-                Background   = new SolidColorBrush(_panel),
+                Background   = FrozenSolidColorBrush(_panel),
                 Padding      = new Thickness(16, 10, 16, 10),
                 CornerRadius = new CornerRadius(5, 5, 0, 0)
             };
@@ -4129,7 +4159,7 @@ namespace KillerPDF
             titleBar.Child = new TextBlock
             {
                 Text       = title,
-                Foreground = new SolidColorBrush(_green),
+                Foreground = FrozenSolidColorBrush(_green),
                 FontWeight = FontWeights.SemiBold,
                 FontSize   = 13,
                 FontFamily = new System.Windows.Media.FontFamily("Consolas")
@@ -4141,7 +4171,7 @@ namespace KillerPDF
             msgBorder.Child = new TextBlock
             {
                 Text        = message,
-                Foreground  = new SolidColorBrush(_text),
+                Foreground  = FrozenSolidColorBrush(_text),
                 FontSize    = 13,
                 TextWrapping = TextWrapping.Wrap
             };
@@ -4181,16 +4211,16 @@ namespace KillerPDF
 
             Button MakeBtn(string label, MessageBoxResult res, bool accent = false)
             {
-                var bgNorm = accent ? new SolidColorBrush(_greenDim) : new SolidColorBrush(_panel);
-                var bgHov  = accent ? new SolidColorBrush(_greenHov) : new SolidColorBrush(_hover);
+                var bgNorm = accent ? FrozenSolidColorBrush(_greenDim) : FrozenSolidColorBrush(_panel);
+                var bgHov  = accent ? FrozenSolidColorBrush(_greenHov) : FrozenSolidColorBrush(_hover);
                 var btn = new Button
                 {
                     Content         = label,
                     Padding         = new Thickness(18, 6, 18, 6),
                     Margin          = new Thickness(8, 0, 0, 0),
                     Background      = bgNorm,
-                    Foreground      = accent ? new SolidColorBrush(_green) : new SolidColorBrush(_text),
-                    BorderBrush     = accent ? new SolidColorBrush(_green) : new SolidColorBrush(_border),
+                    Foreground      = accent ? FrozenSolidColorBrush(_green) : FrozenSolidColorBrush(_text),
+                    BorderBrush     = accent ? FrozenSolidColorBrush(_green) : FrozenSolidColorBrush(_border),
                     BorderThickness = new Thickness(1),
                     Cursor          = Cursors.Hand,
                     FontSize        = 12,
