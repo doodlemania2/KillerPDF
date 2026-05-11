@@ -110,12 +110,15 @@ namespace KillerPDF.Services
             }, cancellationToken);
         }
 
-        public Task<PdfRenderResult> RenderPageAsync(string path, int pageIndex, CancellationToken cancellationToken)
+        public Task<PdfRenderResult> RenderPageAsync(string path, int pageIndex, int dpiX, CancellationToken cancellationToken)
         {
             return Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                using (var docReader = DocLib.Instance.GetDocReader(path, new PageDimensions(1536, 1536)))
+                int safeDpiX = Math.Max(1, dpiX);
+                double renderScale = safeDpiX / 96.0;
+                int renderMax = Math.Max(1, (int)Math.Round(1536 * renderScale));
+                using (var docReader = DocLib.Instance.GetDocReader(path, new PageDimensions(renderMax, renderMax)))
                 using (var pageReader = docReader.GetPageReader(pageIndex))
                 {
                     int width = pageReader.GetPageWidth();
@@ -128,7 +131,7 @@ namespace KillerPDF.Services
                         return new PdfRenderResult(null, width, height);
                     }
 
-                    var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
+                    var bitmap = new WriteableBitmap(width, height, safeDpiX, safeDpiX, PixelFormats.Bgra32, null);
                     bitmap.WritePixels(new Int32Rect(0, 0, width, height), rawBytes, width * 4, 0);
                     bitmap.Freeze();
                     return new PdfRenderResult(bitmap, width, height);

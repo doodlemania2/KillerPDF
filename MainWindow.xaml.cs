@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -44,6 +45,8 @@ namespace KillerPDF
         private EditTool _currentTool = EditTool.Select;
         private readonly Dictionary<int, List<PageAnnotation>> _annotations = new();
         private readonly Dictionary<int, (int w, int h)> _renderDims = new();
+        private readonly Dictionary<(int pageIndex, int dpiX), RenderedPage> _renderCache = new();
+        private double _currentDpiScale = 1.0;
         private bool _isDrawing;
         private Point _drawStart;
         private UIElement? _activePreview;
@@ -127,18 +130,57 @@ namespace KillerPDF
             };
         }
 
+        private bool ShouldIgnoreGlobalShortcut() => _activeTextBox is not null && _activeTextBox.IsFocused;
+
+        private void OpenCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            Open_Click(sender, e);
+        }
+
+        private void SaveCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            SaveAs_Click(sender, e);
+        }
+
+        private void PrintCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            Print_Click(sender, e);
+        }
+
+        private void FindCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            ToggleSearchBar();
+        }
+
+        private void DropZone_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter || e.Key == Key.Space)
+            {
+                Open_Click(sender, e);
+                e.Handled = true;
+            }
+        }
+
         // ============================================================
         // Maximize-respects-taskbar fix (WindowStyle=None needs WM_GETMINMAXINFO)
         // ============================================================
 
         private void MainWindow_SourceInitialized(object? sender, EventArgs e)
         {
+            UpdateCurrentDpiScale();
             var hwnd = new WindowInteropHelper(this).Handle;
             HwndSource.FromHwnd(hwnd)?.AddHook(WndProc);
         }
 
         private const int WM_GETMINMAXINFO = 0x0024;
+        private const int WM_DPICHANGED = 0x02E0;
         private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
@@ -147,7 +189,24 @@ namespace KillerPDF
                 WmGetMinMaxInfo(hwnd, lParam);
                 handled = true;
             }
+            else if (msg == WM_DPICHANGED)
+            {
+                WmDpiChanged(hwnd, wParam, lParam);
+                handled = true;
+            }
             return IntPtr.Zero;
+        }
+
+        private void WmDpiChanged(IntPtr hwnd, IntPtr wParam, IntPtr lParam)
+        {
+            var rect = Marshal.PtrToStructure<RECT>(lParam);
+            SetWindowPos(hwnd, IntPtr.Zero, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+
+            int dpiX = wParam.ToInt32() & 0xFFFF;
+            _currentDpiScale = dpiX > 0 ? dpiX / 96.0 : GetCurrentDpiScaleFromVisual();
+            InvalidateRenderCache();
+            RerenderCurrentPage();
         }
 
         private static void WmGetMinMaxInfo(IntPtr hwnd, IntPtr lParam)
@@ -175,6 +234,9 @@ namespace KillerPDF
 
         [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -205,6 +267,24 @@ namespace KillerPDF
             public RECT rcMonitor;
             public RECT rcWork;
             public uint dwFlags;
+        }
+
+        private sealed class RenderedPage
+        {
+            public RenderedPage(BitmapSource bitmap, double displayWidth, double displayHeight, int pixelWidth, int pixelHeight)
+            {
+                Bitmap = bitmap;
+                DisplayWidth = displayWidth;
+                DisplayHeight = displayHeight;
+                PixelWidth = pixelWidth;
+                PixelHeight = pixelHeight;
+            }
+
+            public BitmapSource Bitmap { get; }
+            public double DisplayWidth { get; }
+            public double DisplayHeight { get; }
+            public int PixelWidth { get; }
+            public int PixelHeight { get; }
         }
 
         // ============================================================
@@ -259,27 +339,30 @@ namespace KillerPDF
         {
             var menu = new ContextMenu();
 
-            menu.Items.Add(MakeMenuItem("Copy Text", (s, e) => CopySelectedText(), "Ctrl+C"));
-            menu.Items.Add(MakeMenuItem("Print", (s, e) => Print_Click(s!, e), "Ctrl+P"));
+            menu.Items.Add(MakeMenuItem("_Copy Text", (s, e) => CopySelectedText(), "Ctrl+C", "Copy selected text to the clipboard"));
+            menu.Items.Add(MakeMenuItem("_Print", (s, e) => Print_Click(s!, e), "Ctrl+P", "Print the current PDF"));
             menu.Items.Add(new Separator());
-            menu.Items.Add(MakeMenuItem("Select Tool", (s, e) => SetTool(EditTool.Select)));
-            menu.Items.Add(MakeMenuItem("Text Tool", (s, e) => SetTool(EditTool.Text)));
-            menu.Items.Add(MakeMenuItem("Highlight Tool", (s, e) => SetTool(EditTool.Highlight)));
-            menu.Items.Add(MakeMenuItem("Draw Tool", (s, e) => SetTool(EditTool.Draw)));
+            menu.Items.Add(MakeMenuItem("_Select Tool", (s, e) => SetTool(EditTool.Select), null, "Switch to the select tool"));
+            menu.Items.Add(MakeMenuItem("_Text Tool", (s, e) => SetTool(EditTool.Text), null, "Switch to the text tool"));
+            menu.Items.Add(MakeMenuItem("_Highlight Tool", (s, e) => SetTool(EditTool.Highlight), null, "Switch to the highlight tool"));
+            menu.Items.Add(MakeMenuItem("_Draw Tool", (s, e) => SetTool(EditTool.Draw), null, "Switch to the draw tool"));
             menu.Items.Add(new Separator());
-            menu.Items.Add(MakeMenuItem("Delete Selected", (s, e) => DeleteSelected(), "Delete"));
-            menu.Items.Add(MakeMenuItem("Undo Last", (s, e) => Undo_Click(s!, e), "Ctrl+Z"));
-            menu.Items.Add(MakeMenuItem("Clear Page Annotations", (s, e) => ClearAnnotations_Click(s!, e)));
+            menu.Items.Add(MakeMenuItem("De_lete Selected", (s, e) => DeleteSelected(), "Delete", "Delete the selected annotation"));
+            menu.Items.Add(MakeMenuItem("_Undo Last", (s, e) => Undo_Click(s!, e), "Ctrl+Z", "Undo the last annotation change"));
+            menu.Items.Add(MakeMenuItem("Cle_ar Page Annotations", (s, e) => ClearAnnotations_Click(s!, e), null, "Clear all annotations on this page"));
 
             _annotationCanvas.ContextMenu = menu;
         }
 
-        private static MenuItem MakeMenuItem(string header, RoutedEventHandler click, string? gesture = null)
+        private static MenuItem MakeMenuItem(string header, RoutedEventHandler click, string? gesture = null, string? helpText = null)
         {
             var item = new MenuItem { Header = header };
             item.Click += click;
             if (gesture != null)
                 item.InputGestureText = gesture;
+            var automationName = header.Replace("_", string.Empty);
+            AutomationProperties.SetName(item, automationName);
+            AutomationProperties.SetHelpText(item, helpText ?? automationName);
             return item;
         }
 
@@ -371,7 +454,7 @@ namespace KillerPDF
                 _currentFile = result.WorkingPath;
                 FileNameLabel.Text = System.IO.Path.GetFileName(result.DisplayPath);
                 _annotations.Clear();
-                _renderDims.Clear();
+                InvalidateRenderCache();
                 _allSearchRects.Clear();
                 _searchResultPages.Clear();
                 _searchPageCursor = -1;
@@ -488,6 +571,43 @@ namespace KillerPDF
             }
         }
 
+        private void UpdateCurrentDpiScale()
+        {
+            _currentDpiScale = GetCurrentDpiScaleFromVisual();
+        }
+
+        private double GetCurrentDpiScaleFromVisual()
+        {
+            var source = PresentationSource.FromVisual(this);
+            var transform = source?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+            return transform.M11 > 0 ? transform.M11 : 1.0;
+        }
+
+        private int GetCurrentDpiX()
+        {
+            return Math.Max(1, (int)Math.Round(_currentDpiScale * 96.0));
+        }
+
+        private void InvalidateRenderCache()
+        {
+            _renderCache.Clear();
+            _renderDims.Clear();
+        }
+
+        private void RerenderCurrentPage()
+        {
+            int pageIndex = PageList.SelectedIndex;
+            if (pageIndex < 0 || _doc is null) return;
+
+            RenderPage(pageIndex);
+            ApplyZoom();
+            if (_searchBar is not null && _searchBar.Visibility == Visibility.Visible
+                && _allSearchRects.Count > 0)
+            {
+                HighlightSearchResultsOnCurrentPage();
+            }
+        }
+
         private async void RenderPage(int pageIndex)
         {
             if (_currentFile is null || _doc is null) return;
@@ -498,23 +618,33 @@ namespace KillerPDF
             var cancellationToken = _renderCancellationTokenSource.Token;
             try
             {
+                int dpiX = GetCurrentDpiX();
                 SetBusy(true, $"Rendering page {pageIndex + 1}...");
-                var result = await _pdfDocumentService.RenderPageAsync(currentFile, pageIndex, cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (result.Bitmap is null || result.Width <= 0 || result.Height <= 0)
+                if (!_renderCache.TryGetValue((pageIndex, dpiX), out var renderedPage))
                 {
-                    PageImage.Source = null;
-                    SetStatus($"Page {pageIndex + 1} - could not render");
-                    return;
+                    var result = await _pdfDocumentService.RenderPageAsync(currentFile, pageIndex, dpiX, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (result.Bitmap is null || result.Width <= 0 || result.Height <= 0)
+                    {
+                        PageImage.Source = null;
+                        SetStatus($"Page {pageIndex + 1} - could not render");
+                        return;
+                    }
+
+                    double renderScale = dpiX / 96.0;
+                    renderedPage = new RenderedPage(result.Bitmap, result.Width / renderScale, result.Height / renderScale, result.Width, result.Height);
+                    _renderCache[(pageIndex, dpiX)] = renderedPage;
                 }
 
                 if (_doc is null) return;
 
-                _renderDims[pageIndex] = (result.Width, result.Height);
-                PageImage.Source = result.Bitmap;
-                _annotationCanvas.Width = result.Width;
-                _annotationCanvas.Height = result.Height;
+                _renderDims[pageIndex] = ((int)Math.Round(renderedPage.DisplayWidth), (int)Math.Round(renderedPage.DisplayHeight));
+                PageImage.Source = renderedPage.Bitmap;
+                PageImage.Width = renderedPage.DisplayWidth;
+                PageImage.Height = renderedPage.DisplayHeight;
+                _annotationCanvas.Width = renderedPage.DisplayWidth;
+                _annotationCanvas.Height = renderedPage.DisplayHeight;
                 ClearSelection();
                 RenderAllAnnotations(pageIndex);
                 SetStatus($"Page {pageIndex + 1} of {_doc.PageCount}");
@@ -1857,6 +1987,8 @@ namespace KillerPDF
                     Padding = new Thickness(6, 2, 6, 2),
                     VerticalContentAlignment = VerticalAlignment.Center
                 };
+                AutomationProperties.SetName(_searchBox, "Search text");
+                AutomationProperties.SetHelpText(_searchBox, "Enter text to find in the current PDF. Press Enter for next result and Shift Enter for previous result.");
                 _searchBox.KeyDown += SearchBox_KeyDown;
                 _searchBox.TextChanged += SearchBox_TextChanged;
 
@@ -1868,6 +2000,9 @@ namespace KillerPDF
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(8, 0, 0, 0)
                 };
+                AutomationProperties.SetName(_searchStatus, "Search status");
+                AutomationProperties.SetHelpText(_searchStatus, "Search result status");
+                AutomationProperties.SetLiveSetting(_searchStatus, AutomationLiveSetting.Polite);
 
                 var closeBtn = new Button
                 {
@@ -1876,6 +2011,8 @@ namespace KillerPDF
                     Style = (Style)FindResource("ToolbarButton"),
                     ToolTip = "Close search (Esc)"
                 };
+                AutomationProperties.SetName(closeBtn, "Close search");
+                AutomationProperties.SetHelpText(closeBtn, "Close the search bar. Shortcut Escape.");
                 closeBtn.Click += (s, e) => CloseSearchBar();
 
                 var searchIcon = new TextBlock
@@ -2421,6 +2558,8 @@ namespace KillerPDF
                 AcceptsReturn = true,
                 Tag = pageIdx
             };
+            AutomationProperties.SetName(tb, "Annotation text");
+            AutomationProperties.SetHelpText(tb, "Type annotation text. Press Enter to save or Escape to cancel.");
             Canvas.SetLeft(tb, pos.X);
             Canvas.SetTop(tb, pos.Y);
             _annotationCanvas.Children.Add(tb);
@@ -2507,6 +2646,34 @@ namespace KillerPDF
             // Don't intercept keys when typing in a TextBox
             if (_activeTextBox is not null && _activeTextBox.IsFocused) return;
 
+            if (Keyboard.Modifiers == ModifierKeys.Alt)
+            {
+                var accessKey = e.SystemKey != Key.None ? e.SystemKey : e.Key;
+                switch (accessKey)
+                {
+                    case Key.O: Open_Click(this, e); break;
+                    case Key.W: CloseFile(); break;
+                    case Key.M: Merge_Click(this, e); break;
+                    case Key.E: Split_Click(this, e); break;
+                    case Key.D: Delete_Click(this, e); break;
+                    case Key.U: MoveUp_Click(this, e); break;
+                    case Key.N: MoveDown_Click(this, e); break;
+                    case Key.S: SaveAs_Click(this, e); break;
+                    case Key.F: SaveFlattened_Click(this, e); break;
+                    case Key.P: Print_Click(this, e); break;
+                    case Key.Q: SetTool(EditTool.Select); break;
+                    case Key.T: SetTool(EditTool.Text); break;
+                    case Key.H: SetTool(EditTool.Highlight); break;
+                    case Key.R: SetTool(EditTool.Draw); break;
+                    case Key.G: ToolSignature_Click(this, e); break;
+                    case Key.Z: Undo_Click(this, e); break;
+                    case Key.L: ClearAnnotations_Click(this, e); break;
+                    default: return;
+                }
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control)
             {
                 CopySelectedText();
@@ -2517,19 +2684,9 @@ namespace KillerPDF
                 SelectAllText();
                 e.Handled = true;
             }
-            else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                ToggleSearchBar();
-                e.Handled = true;
-            }
             else if (e.Key == Key.Escape && _searchBar is not null && _searchBar.Visibility == Visibility.Visible)
             {
                 CloseSearchBar();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.P && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                Print_Click(this, e);
                 e.Handled = true;
             }
             else if (e.Key == Key.Delete && _selectedAnnotation is not null)
@@ -2545,11 +2702,6 @@ namespace KillerPDF
             else if (e.Key == Key.W && Keyboard.Modifiers == ModifierKeys.Control)
             {
                 CloseFile();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                Open_Click(this, e);
                 e.Handled = true;
             }
         }
@@ -2762,12 +2914,17 @@ namespace KillerPDF
             _doc = null;
             _currentFile = null;
             _annotations.Clear();
-            _renderDims.Clear();
+            InvalidateRenderCache();
             _allSearchRects.Clear();
             _searchResultPages.Clear();
             _searchPageCursor = -1;
             PageList.Items.Clear();
-            if (FindName("PageImage") is System.Windows.Controls.Image img) img.Source = null;
+            if (FindName("PageImage") is System.Windows.Controls.Image img)
+            {
+                img.Source = null;
+                img.Width = double.NaN;
+                img.Height = double.NaN;
+            }
             _annotationCanvas.Children.Clear();
             FileNameLabel.Text = "";
             DropZone.Visibility = Visibility.Visible;
@@ -3022,37 +3179,29 @@ namespace KillerPDF
             try
             {
                 bool hasAnnotations = _annotations.Values.Any(list => list.Count > 0);
-                string printPath;
-
-                if (hasAnnotations)
-                {
-                    // Save a temp copy with annotations flattened for printing
-                    var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_clean_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(tempClean);
-                    DrawAnnotationsOnDocument();
-                    printPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_print_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(printPath);
-                    // Restore clean state
-                    _doc.Close();
-                    _doc = PdfReader.Open(tempClean, PdfDocumentOpenMode.Modify);
-                    _currentFile = tempClean;
-                }
-                else
-                {
-                    printPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_print_{Guid.NewGuid():N}.pdf");
-                    _doc.Save(printPath);
-                }
-
-                Process.Start(new ProcessStartInfo(printPath) { Verb = "print", UseShellExecute = true });
-                SetStatus("Sent to printer");
+                new PrintService().Print(this, _doc, _currentFile, hasAnnotations, DrawAnnotationsOnDocument, ReloadPrintedDocument, SetStatus);
             }
             catch (Exception ex)
             {
                 KillerDialog.Show(this, $"Print failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void ReloadPrintedDocument(string path)
+        {
+            var previous = _doc;
+            PdfDocument reopened;
+            try
+            {
+                reopened = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
+            }
+            catch (Exception ex) when (IsOwnerPasswordException(ex))
+            {
+                reopened = PdfReader.Open(path, PdfDocumentOpenMode.ReadOnly);
+            }
+            _doc = reopened;
+            _currentFile = path;
+            previous?.Close();
         }
 
         // ============================================================
@@ -3174,7 +3323,7 @@ namespace KillerPDF
         {
             if (_doc is null || _currentFile is null) return;
             _annotations.Clear();
-            _renderDims.Clear();
+            InvalidateRenderCache();
             ClearSelection();
             MarkDirty();
             var doc = _doc;
