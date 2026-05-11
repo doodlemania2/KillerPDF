@@ -9,6 +9,22 @@ namespace KillerPDF.Properties
         public static Settings Default => defaultInstance;
 
         [UserScopedSetting]
+        [DefaultSettingValue("System")]
+        public string Theme
+        {
+            get => (string)this[nameof(Theme)];
+            set => this[nameof(Theme)] = value;
+        }
+
+        [UserScopedSetting]
+        [DefaultSettingValue("False")]
+        public bool UseNativeWindowFrame
+        {
+            get => (bool)this[nameof(UseNativeWindowFrame)];
+            set => this[nameof(UseNativeWindowFrame)] = value;
+        }
+
+        [UserScopedSetting]
         [DefaultSettingValue("1")]
         public double LastZoomLevel
         {

@@ -1,0 +1,28 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="BgDark" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="BgPanel" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="PanelBackground" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="TitleBarBackground" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="SidebarBackground" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="StatusBarBackground" Color="{x:Static SystemColors.WindowColor}"/>
+    <SolidColorBrush x:Key="BgHover" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="BgPressed" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="BorderDim" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="SeparatorBrush" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="AccentGreen" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="AccentGreenDim" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="TextPrimary" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="TextMuted" Color="{x:Static SystemColors.GrayTextColor}"/>
+    <SolidColorBrush x:Key="WarningOrange" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="DangerRed" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="DisabledForeground" Color="{x:Static SystemColors.GrayTextColor}"/>
+    <SolidColorBrush x:Key="ToolButtonBackground" Color="Transparent"/>
+    <SolidColorBrush x:Key="ToolButtonForeground" Color="{x:Static SystemColors.WindowTextColor}"/>
+    <SolidColorBrush x:Key="ToolButtonHoverBackground" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="ToolButtonPressedBackground" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="ToolButtonCheckedBackground" Color="{x:Static SystemColors.HighlightColor}"/>
+    <SolidColorBrush x:Key="ToolButtonCheckedForeground" Color="{x:Static SystemColors.HighlightTextColor}"/>
+    <SolidColorBrush x:Key="ToolButtonDisabledForeground" Color="{x:Static SystemColors.GrayTextColor}"/>
+</ResourceDictionary>
