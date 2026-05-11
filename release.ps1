@@ -12,15 +12,24 @@
     Run: Get-ChildItem Cert:\CurrentUser\My | Select Subject
     to find it. Defaults to the placeholder below.
 
+.PARAMETER CertThumbprint
+    SHA1 thumbprint of your Certum certificate. When set, this is used instead
+    of CertName.
+
 .PARAMETER SkipSign
     Skip signing (useful for a test build).
+
+.PARAMETER Tag
+    Release tag being published. Tagged releases cannot skip signing.
 
 .EXAMPLE
     .\release.ps1 -CertName "Open Source Developer, Stephen ..."
 #>
 param(
-    [string]$CertName   = "Open Source Developer Stephen Riley",
-    [switch]$SkipSign
+    [string]$CertName       = "Open Source Developer Stephen Riley",
+    [string]$CertThumbprint = "",
+    [switch]$SkipSign,
+    [string]$Tag            = ""
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,85 +38,159 @@ Set-StrictMode -Version Latest
 $proj      = Join-Path $PSScriptRoot "KillerPDF.csproj"
 $publishDir = Join-Path $PSScriptRoot "bin\Release\net48\publish"
 $exe       = Join-Path $publishDir "KillerPDF.exe"
+$hash      = $null
+$srcZip    = $null
 
-# ── 1. Build / Publish ──────────────────────────────────────────────────────
-Write-Host "`n==> Building (Release, net48, win-x64)..." -ForegroundColor Cyan
-
-# Find MSBuild
-$msbuild = $null
-$vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-if (Test-Path $vsWhere) {
-    $vsPath = & $vsWhere -latest -requires Microsoft.Component.MSBuild -property installationPath 2>$null
-    if ($vsPath) {
-        $candidate = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
-        if (Test-Path $candidate) { $msbuild = $candidate }
+try {
+    if (($Tag -ne "") -and $SkipSign) {
+        throw "Refusing to skip signing for a tagged release ($Tag). Pass without -Tag for a test build."
     }
-}
-if (-not $msbuild) {
-    # Try dotnet as fallback
-    $msbuild = "dotnet"
-}
 
-if ($msbuild -eq "dotnet") {
-    & dotnet publish $proj /p:PublishProfile=FolderProfile1 -c Release
-} else {
-    & $msbuild $proj /t:Publish /p:PublishProfile=FolderProfile1 /p:Configuration=Release /m /nologo /v:m
-}
+    # ── 1. Build / Publish ──────────────────────────────────────────────────────
+    try {
+        Write-Host "`n==> Building (Release, net48, win-x64)..." -ForegroundColor Cyan
 
-if ($LASTEXITCODE -ne 0) { throw "Build failed." }
-if (-not (Test-Path $exe)) { throw "EXE not found at: $exe" }
-Write-Host "    EXE: $exe" -ForegroundColor Green
+        # Find MSBuild
+        $msbuild = $null
+        $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path $vsWhere) {
+            $vsPath = & $vsWhere -latest -requires Microsoft.Component.MSBuild -property installationPath 2>$null
+            if ($vsPath) {
+                $candidate = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+                if (Test-Path $candidate) { $msbuild = $candidate }
+            }
+        }
+        if (-not $msbuild) {
+            # Try dotnet as fallback
+            $msbuild = "dotnet"
+        }
 
-# ── 2. Sign ─────────────────────────────────────────────────────────────────
-if (-not $SkipSign) {
-    Write-Host "`n==> Signing with Certum cert: $CertName..." -ForegroundColor Cyan
+        if ($msbuild -eq "dotnet") {
+            & dotnet publish $proj /p:PublishProfile=FolderProfile1 -c Release
+        } else {
+            & $msbuild $proj /t:Publish /p:PublishProfile=FolderProfile1 /p:Configuration=Release /m /nologo /v:m
+        }
 
-    # Find signtool
-    $signtool = $null
-    $kitBase  = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-    if (Test-Path $kitBase) {
-        $signtool = Get-ChildItem "$kitBase\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
-                    Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+        if ($LASTEXITCODE -ne 0) { throw "Build failed." }
+        if (-not (Test-Path $exe)) { throw "EXE not found at: $exe" }
+        Write-Host "    EXE: $exe" -ForegroundColor Green
+    } catch {
+        throw "Build / publish failed: $($_.Exception.Message)"
     }
-    if (-not $signtool) { throw "signtool.exe not found. Install Windows SDK." }
-    Write-Host "    signtool: $signtool"
 
-    & $signtool sign `
-        /fd  sha256 `
-        /tr  "http://timestamp.digicert.com" `
-        /td  sha256 `
-        /n   $CertName `
-        /d   "KillerPDF" `
-        /du  "https://pdf.killertools.net" `
-        /v   $exe
+    # ── 2. Sign ─────────────────────────────────────────────────────────────────
+    try {
+        if (-not $SkipSign) {
+            if ($CertThumbprint -ne "") {
+                $normalizedThumbprint = $CertThumbprint -replace '\s', ''
+                Write-Host "`n==> Signing with Certum cert thumbprint: $normalizedThumbprint..." -ForegroundColor Cyan
+                $certSelector = @("/sha1", $normalizedThumbprint)
+            } else {
+                Write-Host "`n==> Signing with Certum cert: $CertName..." -ForegroundColor Cyan
+                $certSelector = @("/n", $CertName)
+            }
 
-    if ($LASTEXITCODE -ne 0) { throw "Signing failed. Is Certum SimplySign Desktop running?" }
-    Write-Host "    Signed OK" -ForegroundColor Green
-} else {
-    Write-Host "`n==> Skipping signing (-SkipSign)" -ForegroundColor Yellow
+            $simplySign = Get-Process -Name "SimplySignDesktop" -ErrorAction SilentlyContinue
+            if (-not $simplySign) {
+                Write-Host "    SimplySign Desktop process not detected. Signing will likely fail. Press Ctrl+C to abort or wait 10s to continue..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 10
+            }
+
+            # Find signtool
+            $signtool = $null
+            $kitBase  = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+            if (Test-Path $kitBase) {
+                $signtool = Get-ChildItem "$kitBase\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+                            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+            }
+            if (-not $signtool) { throw "signtool.exe not found. Install Windows SDK." }
+            Write-Host "    signtool: $signtool"
+
+            $timestampUrls = @(
+                "http://timestamp.digicert.com",
+                "http://timestamp.sectigo.com",
+                "http://ts.ssl.com"
+            )
+            $signed = $false
+            foreach ($timestampUrl in $timestampUrls) {
+                Write-Host "    Trying timestamp authority: $timestampUrl"
+
+                $signArgs = @(
+                    "sign",
+                    "/fd", "sha256",
+                    "/tr", $timestampUrl,
+                    "/td", "sha256"
+                ) + $certSelector + @(
+                    "/d", "KillerPDF",
+                    "/du", "https://pdf.killertools.net",
+                    "/v", $exe
+                )
+
+                & $signtool @signArgs
+                $signExitCode = $LASTEXITCODE
+                if ($signExitCode -eq 0) {
+                    $signed = $true
+                    break
+                }
+
+                & $signtool verify /pa /v $exe *> $null
+                if ($LASTEXITCODE -eq 0) {
+                    throw "Signing failed using timestamp authority '$timestampUrl' (exit code $signExitCode), but the EXE now has a valid signature. Not retrying to avoid adding a dual signature; rebuild the EXE before trying again."
+                }
+
+                Write-Host "    Signing failed with timestamp authority: $timestampUrl" -ForegroundColor Yellow
+            }
+
+            if (-not $signed) { throw "Signing failed with all timestamp authorities. Is Certum SimplySign Desktop running?" }
+            Write-Host "    Signed OK" -ForegroundColor Green
+
+            & $signtool verify /pa /v $exe
+            if ($LASTEXITCODE -ne 0) { throw "Signature verification failed." }
+            Write-Host "    Signature valid" -ForegroundColor Green
+        } else {
+            Write-Host "`n==> Skipping signing (-SkipSign)" -ForegroundColor Yellow
+        }
+    } catch {
+        throw "Signing failed: $($_.Exception.Message)"
+    }
+
+    # ── 3. SHA256 ────────────────────────────────────────────────────────────────
+    try {
+        Write-Host "`n==> Computing SHA256..." -ForegroundColor Cyan
+        $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+        Write-Host "    SHA256: $hash" -ForegroundColor Green
+    } catch {
+        throw "SHA256 computation failed: $($_.Exception.Message)"
+    }
+
+    # ── 4. Source zip ────────────────────────────────────────────────────────────
+    try {
+        $srcZip = Get-ChildItem $publishDir -Filter "*-src.zip" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($srcZip) {
+            Write-Host "`n==> Source zip: $($srcZip.FullName)" -ForegroundColor Green
+        } else {
+            Write-Host "`n    (No source zip found — did bundle-source.ps1 run?)" -ForegroundColor Yellow
+        }
+    } catch {
+        throw "Source zip lookup failed: $($_.Exception.Message)"
+    }
+
+    # ── 5. Summary ───────────────────────────────────────────────────────────────
+    try {
+        Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+        Write-Host   "  KillerPDF v1.3.0 release artifacts" -ForegroundColor White
+        Write-Host   "  EXE  : $exe"
+        if ($srcZip) { Write-Host "  SRC  : $($srcZip.FullName)" }
+        Write-Host   "  SHA256: $hash" -ForegroundColor Green
+        Write-Host   ""
+        Write-Host   "  Paste SHA256 into:"
+        Write-Host   "    KillerPDF\pdf-landing\index.html (line ~183)"
+        Write-Host   "    killer-tools-site\src\tools\killer-pdf\killer-pdf.vue (line ~90)"
+        Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+    } catch {
+        throw "Summary failed: $($_.Exception.Message)"
+    }
+} catch {
+    Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
 }
-
-# ── 3. SHA256 ────────────────────────────────────────────────────────────────
-Write-Host "`n==> Computing SHA256..." -ForegroundColor Cyan
-$hash = (Get-FileHash $exe -Algorithm SHA256).Hash
-Write-Host "    SHA256: $hash" -ForegroundColor Green
-
-# ── 4. Source zip ────────────────────────────────────────────────────────────
-$srcZip = Get-ChildItem $publishDir -Filter "*-src.zip" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if ($srcZip) {
-    Write-Host "`n==> Source zip: $($srcZip.FullName)" -ForegroundColor Green
-} else {
-    Write-Host "`n    (No source zip found — did bundle-source.ps1 run?)" -ForegroundColor Yellow
-}
-
-# ── 5. Summary ───────────────────────────────────────────────────────────────
-Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host   "  KillerPDF v1.3.0 release artifacts" -ForegroundColor White
-Write-Host   "  EXE  : $exe"
-if ($srcZip) { Write-Host "  SRC  : $($srcZip.FullName)" }
-Write-Host   "  SHA256: $hash" -ForegroundColor Green
-Write-Host   ""
-Write-Host   "  Paste SHA256 into:"
-Write-Host   "    KillerPDF\pdf-landing\index.html (line ~183)"
-Write-Host   "    killer-tools-site\src\tools\killer-pdf\killer-pdf.vue (line ~90)"
-Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
