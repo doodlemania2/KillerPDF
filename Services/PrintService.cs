@@ -10,6 +10,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Xps;
 using System.Windows.Xps.Serialization;
+using System.Windows.Documents.Serialization;
 using System.Windows.Xps.Packaging;
 using Docnet.Core;
 using Docnet.Core.Models;
