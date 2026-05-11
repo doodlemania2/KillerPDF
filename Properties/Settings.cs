@@ -23,5 +23,13 @@ namespace KillerPDF.Properties
             get => (bool)this[nameof(UseNativeWindowFrame)];
             set => this[nameof(UseNativeWindowFrame)] = value;
         }
+
+        [UserScopedSetting]
+        [DefaultSettingValue("1")]
+        public double LastZoomLevel
+        {
+            get => (double)this[nameof(LastZoomLevel)];
+            set => this[nameof(LastZoomLevel)] = value;
+        }
     }
 }
