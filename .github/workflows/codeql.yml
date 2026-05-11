@@ -39,11 +39,6 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 9.0.x
-
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
