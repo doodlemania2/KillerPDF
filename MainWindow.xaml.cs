@@ -3195,7 +3195,7 @@ namespace KillerPDF
             {
                 reopened = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
             }
-            catch (Exception ex) when (IsOwnerPasswordException(ex))
+            catch (Exception ex) when (KillerPDF.Services.PdfDocumentService.IsOwnerPasswordException(ex))
             {
                 reopened = PdfReader.Open(path, PdfDocumentOpenMode.ReadOnly);
             }

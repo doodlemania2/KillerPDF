@@ -16,6 +16,7 @@ using PdfSharpCore.Pdf.IO;
 
 using DrawingBitmap = System.Drawing.Bitmap;
 using DrawingRectangle = System.Drawing.Rectangle;
+using PixelFormat = System.Drawing.Imaging.PixelFormat;
 
 namespace KillerPDF.Services
 {
@@ -233,7 +234,7 @@ namespace KillerPDF.Services
             }
         }
 
-        private static bool IsOwnerPasswordException(Exception ex) =>
+        internal static bool IsOwnerPasswordException(Exception ex) =>
             ex.Message.IndexOf("owner", StringComparison.OrdinalIgnoreCase) >= 0 &&
             ex.Message.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0;
     }
