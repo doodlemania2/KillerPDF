@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace KillerPDF
+namespace TDPdf
 {
     public sealed class ZoomLevelOption
     {

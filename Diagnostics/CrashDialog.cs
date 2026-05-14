@@ -7,7 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 
-namespace KillerPDF.Diagnostics
+namespace TDPdf.Diagnostics
 {
     public sealed class CrashDialog : Window
     {
@@ -18,7 +18,7 @@ namespace KillerPDF.Diagnostics
         private CrashDialog(CrashReport report)
         {
             _report = report;
-            Title = "KillerPDF crash report";
+            Title = "TDPdf crash report";
             Width = 720;
             Height = 520;
             MinWidth = 560;
@@ -80,7 +80,7 @@ namespace KillerPDF.Diagnostics
 
             var title = new TextBlock
             {
-                Text = _report.Recoverable ? "KillerPDF hit an error" : "KillerPDF must close",
+                Text = _report.Recoverable ? "TDPdf hit an error" : "TDPdf must close",
                 FontSize = 24,
                 FontWeight = FontWeights.Bold,
                 Foreground = Brush(0x4a, 0xde, 0x80),

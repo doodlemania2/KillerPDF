@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Media;
 
-namespace KillerPDF
+namespace TDPdf
 {
     public enum EditTool { Select, Text, Highlight, Draw, Signature, EditText, EditImage, Crop }
 

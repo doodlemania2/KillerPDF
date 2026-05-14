@@ -1,6 +1,6 @@
 using System.Configuration;
 
-namespace KillerPDF.Properties
+namespace TDPdf.Properties
 {
     internal sealed class Settings : ApplicationSettingsBase
     {

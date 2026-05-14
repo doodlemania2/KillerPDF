@@ -17,7 +17,7 @@ using Docnet.Core.Models;
 using Docnet.Core.Readers;
 using PdfSharpCore.Pdf;
 
-namespace KillerPDF.Services
+namespace TDPdf.Services
 {
     public sealed class PrintService
     {
@@ -271,7 +271,7 @@ namespace KillerPDF.Services
         private static int ToPixels(double dip) => Math.Max(1, (int)Math.Ceiling(dip / DipPerInch * RenderDpi));
 
         private static string CreateScratchPath(string purpose) =>
-            Path.Combine(Path.GetTempPath(), $"killerpdf_{purpose}_{Guid.NewGuid():N}.pdf");
+            Path.Combine(Path.GetTempPath(), $"tdpdf_{purpose}_{Guid.NewGuid():N}.pdf");
 
         private static void OnWritingCompleted(WritingCompletedEventArgs args, Action<string> setStatus)
         {

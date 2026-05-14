@@ -16,14 +16,14 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Docnet.Core;
 using Docnet.Core.Models;
-using KillerPDF.Services;
+using TDPdf.Services;
 using Microsoft.Win32;
 using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
 using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
 
-namespace KillerPDF
+namespace TDPdf
 {
     public partial class MainWindow : Window
     {
@@ -111,7 +111,7 @@ namespace KillerPDF
         private Border _customTitleBar = null!;
         private RowDefinition _titleBarRow = null!;
 
-        private readonly bool _useNativeWindowFrame = KillerPDF.Properties.Settings.Default.UseNativeWindowFrame;
+        private readonly bool _useNativeWindowFrame = TDPdf.Properties.Settings.Default.UseNativeWindowFrame;
         private HwndSource? _hwndSource;
 
         // Dirty / unsaved-change tracking
@@ -145,7 +145,7 @@ namespace KillerPDF
             _titleBarRow = (RowDefinition)FindName("TitleBarRow")!;
             ApplyCustomChromeVisibility();
             ThemeManager.ThemeChanged += ThemeManager_ThemeChanged;
-            Zoom.SetZoomLevel(KillerPDF.Properties.Settings.Default.LastZoomLevel);
+            Zoom.SetZoomLevel(TDPdf.Properties.Settings.Default.LastZoomLevel);
             Zoom.PropertyChanged += Zoom_PropertyChanged;
             CommandBindings.Add(new CommandBinding(ZoomInRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.In)));
             CommandBindings.Add(new CommandBinding(ZoomOutRoutedCommand, (_, _) => ChangeZoomByCommand(ZoomChange.Out)));
@@ -403,8 +403,8 @@ namespace KillerPDF
             if (_isDirty)
             {
                 var res = KillerDialog.Show(this,
-                    "You have unsaved changes. Close KillerPDF without saving?",
-                    "KillerPDF", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    "You have unsaved changes. Close TDPdf without saving?",
+                    "TDPdf", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (res != MessageBoxResult.Yes)
                 {
                     e.Cancel = true;
@@ -449,7 +449,7 @@ namespace KillerPDF
                 Margin = new Thickness(0, 0, 0, 8)
             });
 
-            var current = ParseThemeSetting(KillerPDF.Properties.Settings.Default.Theme);
+            var current = ParseThemeSetting(TDPdf.Properties.Settings.Default.Theme);
             foreach (var theme in new[] { Theme.Light, Theme.Dark, Theme.System })
             {
                 var radio = new RadioButton
@@ -463,8 +463,8 @@ namespace KillerPDF
                 radio.Checked += (_, _) =>
                 {
                     var selected = (Theme)radio.Tag;
-                    KillerPDF.Properties.Settings.Default.Theme = selected.ToString();
-                    KillerPDF.Properties.Settings.Default.Save();
+                    TDPdf.Properties.Settings.Default.Theme = selected.ToString();
+                    TDPdf.Properties.Settings.Default.Save();
                     ThemeManager.Apply(selected);
                     SetStatus($"Theme set to {radio.Content}");
                 };
@@ -476,7 +476,7 @@ namespace KillerPDF
             var nativeFrame = new CheckBox
             {
                 Content = "Use native window frame (requires restart)",
-                IsChecked = KillerPDF.Properties.Settings.Default.UseNativeWindowFrame,
+                IsChecked = TDPdf.Properties.Settings.Default.UseNativeWindowFrame,
                 Foreground = BrushResource("TextPrimary"),
                 Margin = new Thickness(0, 0, 0, 12)
             };
@@ -486,7 +486,7 @@ namespace KillerPDF
 
             var note = new TextBlock
             {
-                Text = "Native frame changes are applied after restarting KillerPDF. Themes update immediately.",
+                Text = "Native frame changes are applied after restarting TDPdf. Themes update immediately.",
                 Foreground = BrushResource("TextSecondary"),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 16)
@@ -513,14 +513,14 @@ namespace KillerPDF
                 return;
 
             bool requested = cb.IsChecked == true;
-            if (KillerPDF.Properties.Settings.Default.UseNativeWindowFrame == requested)
+            if (TDPdf.Properties.Settings.Default.UseNativeWindowFrame == requested)
                 return;
 
-            KillerPDF.Properties.Settings.Default.UseNativeWindowFrame = requested;
-            KillerPDF.Properties.Settings.Default.Save();
+            TDPdf.Properties.Settings.Default.UseNativeWindowFrame = requested;
+            TDPdf.Properties.Settings.Default.Save();
             KillerDialog.Show(this,
                 "Restart required for the native window frame setting to take effect.",
-                "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Information);
+                "TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private static Theme ParseThemeSetting(string? value)
@@ -623,13 +623,13 @@ namespace KillerPDF
                 catch (Exception ex2)
                 {
                     SetFileOperationBusy(false);
-                    KillerDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                    KillerDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             catch (Exception ex)
             {
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Failed to open PDF:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                KillerDialog.Show(this, $"Failed to open PDF:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -1707,7 +1707,7 @@ namespace KillerPDF
             {
                 if (strokes.Count == 0)
                 {
-                    KillerDialog.Show(this, "Draw a signature first.", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    KillerDialog.Show(this, "Draw a signature first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -1789,7 +1789,7 @@ namespace KillerPDF
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Failed to import image:\n{ex.Message}", "KillerPDF",
+                KillerDialog.Show(this, $"Failed to import image:\n{ex.Message}", "TDPdf",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -2149,14 +2149,14 @@ namespace KillerPDF
 
             if (_activeCrop is null)
             {
-                KillerDialog.Show(this, "Drag a crop rectangle first.", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Information);
+                KillerDialog.Show(this, "Drag a crop rectangle first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
             int pageIdx = _activeCrop.PageIndex;
             if (pageIdx < 0 || pageIdx >= _doc.PageCount || !_renderDims.ContainsKey(pageIdx))
             {
-                KillerDialog.Show(this, "The selected crop page is no longer available.", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+                KillerDialog.Show(this, "The selected crop page is no longer available.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
                 ClearCropSelection();
                 return;
             }
@@ -2209,7 +2209,7 @@ namespace KillerPDF
                 }
                 catch { }
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Crop failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                KillerDialog.Show(this, $"Crop failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -3560,7 +3560,7 @@ namespace KillerPDF
             {
                 var res = KillerDialog.Show(this,
                     "You have unsaved changes. Close this file without saving?",
-                    "KillerPDF", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    "TDPdf", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (res != MessageBoxResult.Yes) return;
             }
             _doc.Close();
@@ -3625,7 +3625,7 @@ namespace KillerPDF
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Merge failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                KillerDialog.Show(this, $"Merge failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -3650,7 +3650,7 @@ namespace KillerPDF
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Split failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                KillerDialog.Show(this, $"Split failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -3660,7 +3660,7 @@ namespace KillerPDF
             var doc = _doc;
             var selected = PageList.SelectedItems;
             if (selected.Count == 0) { KillerDialog.Show(this, "Select pages to delete."); return; }
-            var result = KillerDialog.Show(this, $"Delete {selected.Count} {(selected.Count == 1 ? "page" : "pages")}?", "KillerPDF",
+            var result = KillerDialog.Show(this, $"Delete {selected.Count} {(selected.Count == 1 ? "page" : "pages")}?", "TDPdf",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (result != MessageBoxResult.Yes) return;
             try
@@ -3674,7 +3674,7 @@ namespace KillerPDF
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Delete failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                KillerDialog.Show(this, $"Delete failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -3719,7 +3719,7 @@ namespace KillerPDF
                 if (hasAnnotations)
                 {
                     var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                        $"killerpdf_clean_{Guid.NewGuid():N}.pdf");
+                        $"tdpdf_clean_{Guid.NewGuid():N}.pdf");
                     await _pdfDocumentService.SaveAsync(() => doc.Save(tempClean), CancellationToken.None);
                     DrawAnnotationsOnDocument();
                     ExceptionDispatchInfo? saveError = null;
@@ -3748,7 +3748,7 @@ namespace KillerPDF
             catch (Exception ex)
             {
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Save failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                KillerDialog.Show(this, $"Save failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -3771,8 +3771,8 @@ namespace KillerPDF
                 bool hasAnnotations = _annotations.Values.Any(list => list.Count > 0);
                 if (hasAnnotations)
                 {
-                    var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_clean_{Guid.NewGuid():N}.pdf");
-                    var tempBurned = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_burned_{Guid.NewGuid():N}.pdf");
+                    var tempClean = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"tdpdf_clean_{Guid.NewGuid():N}.pdf");
+                    var tempBurned = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"tdpdf_burned_{Guid.NewGuid():N}.pdf");
                     await _pdfDocumentService.SaveAsync(() => doc.Save(tempClean), CancellationToken.None);
                     DrawAnnotationsOnDocument();
                     ExceptionDispatchInfo? saveError = null;
@@ -3791,7 +3791,7 @@ namespace KillerPDF
                 }
                 else
                 {
-                    var temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"killerpdf_src_{Guid.NewGuid():N}.pdf");
+                    var temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"tdpdf_src_{Guid.NewGuid():N}.pdf");
                     await _pdfDocumentService.SaveAsync(() => doc.Save(temp), CancellationToken.None);
                     sourcePath = temp;
                 }
@@ -3803,7 +3803,7 @@ namespace KillerPDF
             catch (Exception ex)
             {
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Flatten failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                KillerDialog.Show(this, $"Flatten failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -3839,7 +3839,7 @@ namespace KillerPDF
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Print failed:\n{ex.Message}", "KillerPDF", MessageBoxButton.OK, MessageBoxImage.Error);
+                KillerDialog.Show(this, $"Print failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -3851,7 +3851,7 @@ namespace KillerPDF
             {
                 reopened = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
             }
-            catch (Exception ex) when (KillerPDF.Services.PdfDocumentService.IsOwnerPasswordException(ex))
+            catch (Exception ex) when (TDPdf.Services.PdfDocumentService.IsOwnerPasswordException(ex))
             {
                 reopened = PdfReader.Open(path, PdfDocumentOpenMode.ReadOnly);
             }
@@ -4019,7 +4019,7 @@ namespace KillerPDF
             var doc = _doc;
             int selectedIdx = PageList.SelectedIndex;
             var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                $"killerpdf_temp_{Guid.NewGuid():N}.pdf");
+                $"tdpdf_temp_{Guid.NewGuid():N}.pdf");
             doc.Save(tempPath);
             doc.Close();
             _doc = PdfReader.Open(tempPath, PdfDocumentOpenMode.Modify);
@@ -4123,8 +4123,8 @@ namespace KillerPDF
         {
             try
             {
-                KillerPDF.Properties.Settings.Default.LastZoomLevel = Zoom.ZoomLevel;
-                KillerPDF.Properties.Settings.Default.Save();
+                TDPdf.Properties.Settings.Default.LastZoomLevel = Zoom.ZoomLevel;
+                TDPdf.Properties.Settings.Default.Save();
             }
             catch
             {
@@ -4301,7 +4301,7 @@ namespace KillerPDF
         public static MessageBoxResult Show(
             Window? owner,
             string message,
-            string title = "KillerPDF",
+            string title = "TDPdf",
             MessageBoxButton buttons = MessageBoxButton.OK,
             MessageBoxImage image = MessageBoxImage.None)
         {
