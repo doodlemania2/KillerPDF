@@ -1,6 +1,6 @@
 name: release
 
-# Publishes a self-contained single-file Windows x64 build of KillerPDF
+# Publishes a self-contained single-file Windows x64 build of TDPdf
 # whenever a tag matching v* is pushed, and attaches the .exe to a
 # GitHub Release with the supplied release notes.
 
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release (e.g. v0.9)"
+        description: "Tag to release (e.g. v1.0.0)"
         required: true
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
 
       - name: Publish (Release, win-x64, single-file, self-contained)
         run: |
-          dotnet publish KillerPDF.csproj \
+          dotnet publish TDPdf.csproj \
             -c Release \
             -r win-x64 \
             --self-contained true \
@@ -47,7 +47,7 @@ jobs:
         id: asset
         run: |
           mkdir -p dist
-          cp publish/KillerPDF.exe "dist/KillerPDF-${{ steps.tag.outputs.name }}-win-x64.exe"
+          cp publish/TDPdf.exe "dist/TDPdf-${{ steps.tag.outputs.name }}-win-x64.exe"
           ls -la dist
 
       - name: Create / update GitHub release
@@ -57,8 +57,8 @@ jobs:
           TAG="${{ steps.tag.outputs.name }}"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" \
-              --title "KillerPDF (fork) $TAG" \
+              --title "TDPdf $TAG" \
               --notes-file .github/release-notes/$TAG.md \
               --target "${GITHUB_SHA}"
           fi
-          gh release upload "$TAG" dist/KillerPDF-${TAG}-win-x64.exe --clobber
+          gh release upload "$TAG" dist/TDPdf-${TAG}-win-x64.exe --clobber

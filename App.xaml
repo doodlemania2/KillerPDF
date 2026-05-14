@@ -1,7 +1,7 @@
-﻿<Application x:Class="KillerPDF.App"
+﻿<Application x:Class="TDPdf.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:KillerPDF"
+             xmlns:local="clr-namespace:TDPdf"
              >
     <Application.Resources>
          

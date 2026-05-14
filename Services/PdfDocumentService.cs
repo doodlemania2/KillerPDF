@@ -18,7 +18,7 @@ using DrawingBitmap = System.Drawing.Bitmap;
 using DrawingRectangle = System.Drawing.Rectangle;
 using PixelFormat = System.Drawing.Imaging.PixelFormat;
 
-namespace KillerPDF.Services
+namespace TDPdf.Services
 {
     internal sealed class PdfDocumentService
     {
@@ -164,7 +164,7 @@ namespace KillerPDF.Services
                 }
 
                 document = PdfReader.Open(path, password ?? string.Empty, PdfDocumentOpenMode.Modify);
-                var tempDec = Path.Combine(Path.GetTempPath(), $"killerpdf_dec_{Guid.NewGuid():N}.pdf");
+                var tempDec = Path.Combine(Path.GetTempPath(), $"tdpdf_dec_{Guid.NewGuid():N}.pdf");
                 document.Save(tempDec);
                 document.Close();
                 document = PdfReader.Open(tempDec, PdfDocumentOpenMode.Modify);

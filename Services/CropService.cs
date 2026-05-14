@@ -5,7 +5,7 @@ using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
 
-namespace KillerPDF
+namespace TDPdf
 {
     public static class CropService
     {

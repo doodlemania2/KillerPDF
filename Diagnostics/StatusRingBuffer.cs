@@ -1,6 +1,6 @@
 using System;
 
-namespace KillerPDF.Diagnostics
+namespace TDPdf.Diagnostics
 {
     public sealed class StatusRingBuffer
     {

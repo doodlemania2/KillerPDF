@@ -1,8 +1,8 @@
 name: CodeQL
 
-# CodeQL analysis for KillerPDF.
+# CodeQL analysis for TDPdf.
 #
-# Required by the doodlemania2/KillerPDF main-branch ruleset (must report
+# Required by the doodlemania2/TDPdf main-branch ruleset (must report
 # results before merge). Runs on the in-cluster ARC runner; net9.0-windows
 # cross-targeting from Linux requires EnableWindowsTargeting=true.
 
@@ -46,10 +46,10 @@ jobs:
           build-mode: manual
 
       - name: Restore
-        run: dotnet restore KillerPDF.csproj -p:EnableWindowsTargeting=true
+        run: dotnet restore TDPdf.csproj -p:EnableWindowsTargeting=true
 
       - name: Build (Release, x64)
-        run: dotnet build KillerPDF.csproj -c Release -p:Platform=x64 -p:EnableWindowsTargeting=true --no-restore
+        run: dotnet build TDPdf.csproj -c Release -p:Platform=x64 -p:EnableWindowsTargeting=true --no-restore
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

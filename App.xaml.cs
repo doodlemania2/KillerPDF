@@ -10,10 +10,10 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
-using KillerPDF.Services;
-using KillerPDF.Diagnostics;
+using TDPdf.Services;
+using TDPdf.Diagnostics;
 
-namespace KillerPDF
+namespace TDPdf
 {
     public partial class App : Application
     {
@@ -21,8 +21,8 @@ namespace KillerPDF
         // Paths
         // ============================================================
 
-        private static readonly string AppName   = "KillerPDF";
-        private static readonly string ExeName   = "KillerPDF.exe";
+        private static readonly string AppName   = "TDPdf";
+        private static readonly string ExeName   = "TDPdf.exe";
         private static readonly string InstallDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Programs", AppName);
@@ -54,7 +54,7 @@ namespace KillerPDF
             TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
             base.OnStartup(e);
-            ThemeManager.Initialize(ParseThemeSetting(KillerPDF.Properties.Settings.Default.Theme));
+            ThemeManager.Initialize(ParseThemeSetting(TDPdf.Properties.Settings.Default.Theme));
 
             // Prevent WPF from auto-shutting down when the launcher dialog closes
             // (OnLastWindowClose fires between dialog close and MainWindow.Show).
@@ -95,11 +95,11 @@ namespace KillerPDF
                 {
                     DoInstall(wantDesktop);
 
-                    // Offer to open Default Apps settings only if KillerPDF isn't already the default
+                    // Offer to open Default Apps settings only if TDPdf isn't already the default
                     if (!IsDefaultPdfHandler())
                     {
                         var res = KillerDialog.Show(null,
-                            "Would you like to set KillerPDF as your default PDF viewer?\n\n" +
+                            "Would you like to set TDPdf as your default PDF viewer?\n\n" +
                             "Opens Windows Settings → Default Apps.",
                             AppName, MessageBoxButton.YesNo);
                         if (res == MessageBoxResult.Yes)
@@ -171,7 +171,7 @@ namespace KillerPDF
 
         private static bool IsInstalled()
         {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\KillerPDF");
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\TDPdf");
             if (key is null) return false;
             return key.GetValue("Installed") is int i && i == 1;
         }
@@ -181,7 +181,7 @@ namespace KillerPDF
             using var key = Registry.CurrentUser.OpenSubKey(
                 @"Software\Microsoft\Windows\Shell\Associations\FileAssociations\.pdf\UserChoice");
             return key?.GetValue("ProgId") is string progId &&
-                   progId.Equals("KillerPDF.pdf", StringComparison.OrdinalIgnoreCase);
+                   progId.Equals("TDPdf.pdf", StringComparison.OrdinalIgnoreCase);
         }
 
         // ============================================================
@@ -344,7 +344,7 @@ namespace KillerPDF
             {
                 Text         = alreadyInstalled
                     ? "A newer version is available. Install it or run without updating."
-                    : "Install KillerPDF on this computer, or run it without installing.",
+                    : "Install TDPdf on this computer, or run it without installing.",
                 Foreground   = Brushes.White,
                 TextWrapping = TextWrapping.Wrap,
                 Margin       = new Thickness(0, 0, 0, 16)
@@ -428,7 +428,7 @@ namespace KillerPDF
                     CreateShortcut(DesktopLnk, InstallExe);
 
                 // Installed marker
-                using (var key = Registry.CurrentUser.CreateSubKey(@"Software\KillerPDF"))
+                using (var key = Registry.CurrentUser.CreateSubKey(@"Software\TDPdf"))
                 {
                     key.SetValue("Installed",    1);
                     key.SetValue("InstallPath",  InstallExe);
@@ -438,12 +438,12 @@ namespace KillerPDF
 
                 // Add/Remove Programs entry
                 using (var key = Registry.CurrentUser.CreateSubKey(
-                    @"Software\Microsoft\Windows\CurrentVersion\Uninstall\KillerPDF"))
+                    @"Software\Microsoft\Windows\CurrentVersion\Uninstall\TDPdf"))
                 {
                     key.SetValue("DisplayName",          AppName);
                     key.SetValue("DisplayVersion",
                         Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "");
-                    key.SetValue("Publisher",            "Steve / thekiller.net");
+                    key.SetValue("Publisher",            "The Doodle Project");
                     key.SetValue("InstallLocation",      InstallDir);
                     key.SetValue("DisplayIcon",          $"{InstallExe},0");
                     key.SetValue("UninstallString",      $"\"{InstallExe}\" /uninstall");
@@ -465,35 +465,35 @@ namespace KillerPDF
         private static void RegisterFileHandler()
         {
             // ProgID definition
-            using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\KillerPDF.pdf"))
+            using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\TDPdf.pdf"))
                 k.SetValue("", "PDF Document");
 
             using (var k = Registry.CurrentUser.CreateSubKey(
-                @"Software\Classes\KillerPDF.pdf\DefaultIcon"))
+                @"Software\Classes\TDPdf.pdf\DefaultIcon"))
                 k.SetValue("", $"{InstallExe},0");
 
             using (var k = Registry.CurrentUser.CreateSubKey(
-                @"Software\Classes\KillerPDF.pdf\shell\open\command"))
+                @"Software\Classes\TDPdf.pdf\shell\open\command"))
                 k.SetValue("", $"\"{InstallExe}\" \"%1\"");
 
-            // Associate .pdf extension — adds KillerPDF to the "Open with" list
+            // Associate .pdf extension — adds TDPdf to the "Open with" list
             using (var k = Registry.CurrentUser.CreateSubKey(
                 @"Software\Classes\.pdf\OpenWithProgids"))
-                k.SetValue("KillerPDF.pdf", new byte[0], RegistryValueKind.None);
+                k.SetValue("TDPdf.pdf", new byte[0], RegistryValueKind.None);
 
             // RegisteredApplications capability (used by Default Programs UI)
             using (var k = Registry.CurrentUser.CreateSubKey(
-                @"Software\KillerPDF\Capabilities"))
+                @"Software\TDPdf\Capabilities"))
             {
                 k.SetValue("ApplicationName",        AppName);
                 k.SetValue("ApplicationDescription", "Lightweight PDF viewer and editor");
             }
             using (var k = Registry.CurrentUser.CreateSubKey(
-                @"Software\KillerPDF\Capabilities\FileAssociations"))
-                k.SetValue(".pdf", "KillerPDF.pdf");
+                @"Software\TDPdf\Capabilities\FileAssociations"))
+                k.SetValue(".pdf", "TDPdf.pdf");
 
             using (var k = Registry.CurrentUser.CreateSubKey(@"Software\RegisteredApplications"))
-                k.SetValue(AppName, @"Software\KillerPDF\Capabilities");
+                k.SetValue(AppName, @"Software\TDPdf\Capabilities");
 
             // Tell the shell file associations have changed
             SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
@@ -521,7 +521,7 @@ namespace KillerPDF
         private static void Uninstall()
         {
             var res = MessageBox.Show(
-                "Uninstall KillerPDF from this computer?",
+                "Uninstall TDPdf from this computer?",
                 $"{AppName} Uninstall",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
@@ -533,16 +533,16 @@ namespace KillerPDF
             try { File.Delete(DesktopLnk); } catch { }
 
             // Registry cleanup
-            try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\KillerPDF"); } catch { }
+            try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\TDPdf"); } catch { }
             try { Registry.CurrentUser.DeleteSubKeyTree(
-                @"Software\Microsoft\Windows\CurrentVersion\Uninstall\KillerPDF"); } catch { }
-            try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\KillerPDF.pdf"); } catch { }
+                @"Software\Microsoft\Windows\CurrentVersion\Uninstall\TDPdf"); } catch { }
+            try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\TDPdf.pdf"); } catch { }
 
             try
             {
                 using var k = Registry.CurrentUser.OpenSubKey(
                     @"Software\Classes\.pdf\OpenWithProgids", writable: true);
-                k?.DeleteValue("KillerPDF.pdf", throwOnMissingValue: false);
+                k?.DeleteValue("TDPdf.pdf", throwOnMissingValue: false);
             }
             catch { }
 
@@ -557,7 +557,7 @@ namespace KillerPDF
             SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
 
             // Self-delete: deferred via cmd batch so the EXE can exit first
-            string bat = Path.Combine(Path.GetTempPath(), "killerpdf_uninstall.bat");
+            string bat = Path.Combine(Path.GetTempPath(), "tdpdf_uninstall.bat");
             File.WriteAllText(bat,
                 "@echo off\r\n" +
                 "ping -n 3 127.0.0.1 >nul\r\n" +
@@ -569,7 +569,7 @@ namespace KillerPDF
                 UseShellExecute = true
             });
 
-            MessageBox.Show("KillerPDF has been uninstalled.", AppName,
+            MessageBox.Show("TDPdf has been uninstalled.", AppName,
                 MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }

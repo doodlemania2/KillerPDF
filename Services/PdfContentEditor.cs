@@ -1,7 +1,7 @@
 using System.Windows;
 using PdfPigDoc = UglyToad.PdfPig.PdfDocument;
 
-namespace KillerPDF
+namespace TDPdf
 {
     internal sealed class PdfContentEditor
     {

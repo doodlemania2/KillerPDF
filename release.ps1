@@ -1,10 +1,10 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    KillerPDF release script: build → sign → SHA256 → print summary.
+    TDPdf release script: build → sign → SHA256 → print summary.
 .DESCRIPTION
     1. Publishes for net9.0-windows/win-x64 — also runs bundle-source.ps1 to zip the source.
-    2. Signs KillerPDF.exe with your Certum cert via signtool.
+    2. Signs TDPdf.exe with your Certum cert via signtool.
     3. Computes and prints the SHA256 for pasting into the landing pages.
 
 .PARAMETER CertName
@@ -23,10 +23,10 @@
     Release tag being published. Tagged releases cannot skip signing.
 
 .EXAMPLE
-    .\release.ps1 -CertName "Open Source Developer, Stephen ..."
+    .\release.ps1 -CertName "The Doodle Project"
 #>
 param(
-    [string]$CertName       = "Open Source Developer Stephen Riley",
+    [string]$CertName       = "The Doodle Project",
     [string]$CertThumbprint = "",
     [switch]$SkipSign,
     [string]$Tag            = ""
@@ -35,9 +35,9 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$proj       = Join-Path $PSScriptRoot "KillerPDF.csproj"
+$proj       = Join-Path $PSScriptRoot "TDPdf.csproj"
 $publishDir = Join-Path $PSScriptRoot "bin\Release\net9.0-windows\win-x64\publish"
-$exe        = Join-Path $publishDir "KillerPDF.exe"
+$exe        = Join-Path $publishDir "TDPdf.exe"
 $hash       = $null
 $srcZip     = $null
 
@@ -102,8 +102,8 @@ try {
                     "/tr", $timestampUrl,
                     "/td", "sha256"
                 ) + $certSelector + @(
-                    "/d", "KillerPDF",
-                    "/du", "https://pdf.killertools.net",
+                    "/d", "TDPdf",
+                    "/du", "https://thedoodleproject.com/tdpdf",
                     "/v", $exe
                 )
 
@@ -159,14 +159,13 @@ try {
     # ── 5. Summary ───────────────────────────────────────────────────────────────
     try {
         Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-        Write-Host   "  KillerPDF v1.3.0 release artifacts" -ForegroundColor White
+        Write-Host   "  TDPdf v1.0.0 release artifacts" -ForegroundColor White
         Write-Host   "  EXE  : $exe"
         if ($srcZip) { Write-Host "  SRC  : $($srcZip.FullName)" }
         Write-Host   "  SHA256: $hash" -ForegroundColor Green
         Write-Host   ""
         Write-Host   "  Paste SHA256 into:"
-        Write-Host   "    KillerPDF\pdf-landing\index.html (line ~183)"
-        Write-Host   "    killer-tools-site\src\tools\killer-pdf\killer-pdf.vue (line ~90)"
+        Write-Host   "    pdf-landing\index.html (search for SHA256)"
         Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     } catch {
         throw "Summary failed: $($_.Exception.Message)"

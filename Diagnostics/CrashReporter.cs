@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Markup;
 
-namespace KillerPDF.Diagnostics
+namespace TDPdf.Diagnostics
 {
     public sealed class CrashReport
     {
@@ -42,7 +42,7 @@ namespace KillerPDF.Diagnostics
 
         public static string LogDirectory => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "KillerPDF",
+            "TDPdf",
             "Logs");
 
         public static CrashReport Report(Exception exception, string source)
@@ -141,7 +141,7 @@ namespace KillerPDF.Diagnostics
             var sb = new StringBuilder();
             var assembly = Assembly.GetExecutingAssembly().GetName();
 
-            sb.AppendLine("KillerPDF crash report");
+            sb.AppendLine("TDPdf crash report");
             sb.AppendLine($"Timestamp: {DateTimeOffset.Now:O}");
             sb.AppendLine($"Source: {source}");
             sb.AppendLine($"Recoverable: {(recoverable ? "yes" : "no")}");

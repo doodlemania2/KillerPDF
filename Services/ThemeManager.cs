@@ -2,7 +2,7 @@ using System;
 using System.Windows;
 using Microsoft.Win32;
 
-namespace KillerPDF.Services
+namespace TDPdf.Services
 {
     public enum Theme
     {
