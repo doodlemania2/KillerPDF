@@ -7,7 +7,6 @@
         mc:Ignorable="d"
         Title="TDPdf" Height="700" Width="1000"
         WindowStartupLocation="CenterScreen"
-        ResizeMode="CanResizeWithGrip"
         Background="{DynamicResource BgDark}"
         KeyboardNavigation.TabNavigation="Continue"
         KeyboardNavigation.ControlTabNavigation="Continue">
@@ -17,13 +16,23 @@
         <CommandBinding Command="{x:Static ApplicationCommands.Save}" Executed="SaveCommand_Executed"/>
         <CommandBinding Command="{x:Static ApplicationCommands.Print}" Executed="PrintCommand_Executed"/>
         <CommandBinding Command="{x:Static ApplicationCommands.Find}" Executed="FindCommand_Executed"/>
+        <CommandBinding Command="{x:Static local:MainWindow.NewDocumentCommand}" Executed="NewCommand_Executed"/>
+        <CommandBinding Command="{x:Static local:MainWindow.CloseFileCommand}" Executed="CloseFileCommand_Executed"/>
+        <CommandBinding Command="{x:Static local:MainWindow.UndoCommand}" Executed="UndoCommand_Executed"/>
+        <CommandBinding Command="{x:Static local:MainWindow.SaveAsCommand}" Executed="SaveAsCommand_Executed"/>
+        <CommandBinding Command="{x:Static local:MainWindow.AboutCommand}" Executed="AboutCommand_Executed"/>
     </Window.CommandBindings>
 
     <Window.InputBindings>
         <KeyBinding Key="O" Modifiers="Control" Command="{x:Static ApplicationCommands.Open}"/>
         <KeyBinding Key="S" Modifiers="Control" Command="{x:Static ApplicationCommands.Save}"/>
+        <KeyBinding Key="S" Modifiers="Control+Shift" Command="{x:Static local:MainWindow.SaveAsCommand}"/>
         <KeyBinding Key="P" Modifiers="Control" Command="{x:Static ApplicationCommands.Print}"/>
         <KeyBinding Key="F" Modifiers="Control" Command="{x:Static ApplicationCommands.Find}"/>
+        <KeyBinding Key="N" Modifiers="Control" Command="{x:Static local:MainWindow.NewDocumentCommand}"/>
+        <KeyBinding Key="W" Modifiers="Control" Command="{x:Static local:MainWindow.CloseFileCommand}"/>
+        <KeyBinding Key="Z" Modifiers="Control" Command="{x:Static local:MainWindow.UndoCommand}"/>
+        <KeyBinding Key="F1" Command="{x:Static local:MainWindow.AboutCommand}"/>
         <KeyBinding Key="D0" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomResetRoutedCommand}"/>
         <KeyBinding Key="OemPlus" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomInRoutedCommand}"/>
         <KeyBinding Key="Add" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomInRoutedCommand}"/>
@@ -489,6 +498,7 @@
         <Grid.RowDefinitions>
             <RowDefinition x:Name="TitleBarRow" Height="36"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="28"/>
         </Grid.RowDefinitions>
@@ -526,8 +536,70 @@
             </Grid>
         </Border>
 
+        <!-- Menu bar -->
+        <Menu x:Name="MainMenu" Grid.Row="1"
+              Background="{DynamicResource PanelBackground}"
+              Foreground="{DynamicResource TextPrimary}"
+              BorderBrush="{DynamicResource BorderDim}"
+              BorderThickness="0,0,0,1"
+              Padding="4,0"
+              KeyboardNavigation.TabNavigation="Continue"
+              AutomationProperties.Name="Main menu">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New"             InputGestureText="Ctrl+N"       Click="New_Click"/>
+                <MenuItem Header="_Open…"           InputGestureText="Ctrl+O"       Click="Open_Click"/>
+                <MenuItem Header="_Close"           InputGestureText="Ctrl+W"       Click="CloseFile_Click"/>
+                <Separator/>
+                <MenuItem Header="_Save"            InputGestureText="Ctrl+S"       Click="SaveAs_Click"/>
+                <MenuItem Header="Save _As…"        InputGestureText="Ctrl+Shift+S" Click="SaveAs_Click"/>
+                <MenuItem Header="Save _Flattened…"                                  Click="SaveFlattened_Click"/>
+                <Separator/>
+                <MenuItem Header="_Merge…"                                          Click="Merge_Click"/>
+                <MenuItem Header="E_xtract Pages…"                                  Click="Split_Click"/>
+                <Separator/>
+                <MenuItem Header="_Print…"          InputGestureText="Ctrl+P"       Click="Print_Click"/>
+                <Separator/>
+                <MenuItem Header="E_xit"            InputGestureText="Alt+F4"       Click="Exit_Click"/>
+            </MenuItem>
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo"            InputGestureText="Ctrl+Z"       Click="Undo_Click"/>
+                <Separator/>
+                <MenuItem Header="_Find…"           InputGestureText="Ctrl+F"       Command="{x:Static ApplicationCommands.Find}"/>
+                <Separator/>
+                <MenuItem Header="_Delete Selected Pages"                           Click="Delete_Click"/>
+                <MenuItem Header="_Clear All Annotations"                           Click="ClearAnnotations_Click"/>
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="Zoom _In"         InputGestureText="Ctrl++"       Command="{x:Static local:MainWindow.ZoomInRoutedCommand}"/>
+                <MenuItem Header="Zoom _Out"        InputGestureText="Ctrl+-"       Command="{x:Static local:MainWindow.ZoomOutRoutedCommand}"/>
+                <MenuItem Header="_Reset Zoom"      InputGestureText="Ctrl+0"       Command="{x:Static local:MainWindow.ZoomResetRoutedCommand}"/>
+                <Separator/>
+                <MenuItem Header="Toggle _Sidebar"                                  Click="SidebarToggle_Click"/>
+            </MenuItem>
+            <MenuItem Header="_Tools">
+                <MenuItem Header="_Select"                                          Click="ToolSelect_Click"/>
+                <MenuItem Header="_Text"                                            Click="ToolText_Click"/>
+                <MenuItem Header="Edit Existing Te_xt"                              Click="ToolEditText_Click"/>
+                <MenuItem Header="Edit Existing _Image"                             Click="ToolEditImage_Click"/>
+                <MenuItem Header="I_nsert Image"                                    Click="ToolImage_Click"/>
+                <MenuItem Header="_Highlight"                                       Click="ToolHighlight_Click"/>
+                <MenuItem Header="_Draw"                                            Click="ToolDraw_Click"/>
+                <MenuItem Header="Si_gnature"                                       Click="ToolSignature_Click"/>
+                <MenuItem Header="_Crop"                                            Click="ToolCrop_Click"/>
+                <Separator/>
+                <MenuItem Header="Se_ttings…"                                       Click="Settings_Click"/>
+            </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="View on _GitHub"                                  Click="HelpGitHub_Click"/>
+                <MenuItem Header="_Report an Issue"                                 Click="HelpReportIssue_Click"/>
+                <MenuItem Header="View _Changelog"                                  Click="HelpChangelog_Click"/>
+                <Separator/>
+                <MenuItem Header="_About TDPdf"     InputGestureText="F1"           Command="{x:Static local:MainWindow.AboutCommand}"/>
+            </MenuItem>
+        </Menu>
+
         <!-- Toolbar -->
-        <Border Grid.Row="1" Background="{DynamicResource PanelBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,0,0,1" Padding="4,2"
+        <Border Grid.Row="2" Background="{DynamicResource PanelBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,0,0,1" Padding="4,2"
                 KeyboardNavigation.TabNavigation="Continue">
             <Grid>
                 <Grid x:Name="ToolbarA11yLabels" Width="0" Height="0" IsHitTestVisible="False" Focusable="False" Opacity="0">
@@ -591,7 +663,7 @@
         </Border>
 
         <!-- Main content -->
-        <Grid Grid.Row="2" x:Name="MainContentGrid" KeyboardNavigation.TabNavigation="Continue">
+        <Grid Grid.Row="3" x:Name="MainContentGrid" KeyboardNavigation.TabNavigation="Continue">
             <Grid.ColumnDefinitions>
                 <!-- SidebarCol never collapses to 0 — it shrinks to 24px (the toggle strip width). -->
                 <ColumnDefinition x:Name="SidebarCol" Width="180" MinWidth="24" MaxWidth="260"/>
@@ -690,7 +762,7 @@
         </Grid>
 
         <!-- Status bar -->
-        <Border Grid.Row="3" Background="{DynamicResource StatusBarBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="4" Background="{DynamicResource StatusBarBackground}" BorderBrush="{DynamicResource BorderDim}" BorderThickness="0,1,0,0">
             <Grid Margin="16,0" KeyboardNavigation.TabNavigation="Continue">
                 <TextBlock x:Name="StatusText" Text="Ready" Foreground="{DynamicResource TextSecondary}" FontFamily="Segoe UI" FontSize="11" VerticalAlignment="Center" AutomationProperties.Name="Status" AutomationProperties.HelpText="Current application status" AutomationProperties.LiveSetting="Polite"/>
                 <!-- Portable mode indicator (hidden when installed) -->
@@ -745,7 +817,7 @@
 
         <!-- Film grain overlay — main content area only -->
         <Border x:Name="GrainOverlay"
-                Grid.Row="2"
+                Grid.Row="3"
                 IsHitTestVisible="False"
                 Opacity="0.15"
                 Panel.ZIndex="9999">
