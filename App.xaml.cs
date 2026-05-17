@@ -56,11 +56,6 @@ namespace TDPdf
             base.OnStartup(e);
             ThemeManager.Initialize(ParseThemeSetting(TDPdf.Properties.Settings.Default.Theme));
 
-            // Prevent WPF from auto-shutting down when the launcher dialog closes
-            // (OnLastWindowClose fires between dialog close and MainWindow.Show).
-            // We switch back to OnLastWindowClose once the main window is up.
-            ShutdownMode = ShutdownMode.OnExplicitShutdown;
-
             // Handle uninstall flag (called by Add/Remove Programs)
             if (e.Args.Length > 0 &&
                 string.Equals(e.Args[0], "/uninstall", StringComparison.OrdinalIgnoreCase))
@@ -70,55 +65,6 @@ namespace TDPdf
                 return;
             }
 
-            // Pick up a file path from args (file association / drag-drop on icon)
-            string? fileToOpen = null;
-            foreach (var arg in e.Args)
-                if (File.Exists(arg)) { fileToOpen = arg; break; }
-
-            string currentExe = Process.GetCurrentProcess().MainModule!.FileName;
-            bool isInstalledCopy = string.Equals(
-                currentExe, InstallExe, StringComparison.OrdinalIgnoreCase);
-
-            // Show the Install / Run launcher only when running from outside the install location
-            if (!isInstalledCopy)
-            {
-                bool alreadyInstalled = IsInstalled();
-                var (cancelled, doInstall, wantDesktop) = ShowLauncher(alreadyInstalled);
-
-                if (cancelled)
-                {
-                    Shutdown();
-                    return;
-                }
-
-                if (doInstall)
-                {
-                    DoInstall(wantDesktop);
-
-                    // Offer to open Default Apps settings only if TDPdf isn't already the default
-                    if (!IsDefaultPdfHandler())
-                    {
-                        var res = KillerDialog.Show(null,
-                            "Would you like to set TDPdf as your default PDF viewer?\n\n" +
-                            "Opens Windows Settings → Default Apps.",
-                            AppName, MessageBoxButton.YesNo);
-                        if (res == MessageBoxResult.Yes)
-                            Process.Start(new ProcessStartInfo("ms-settings:defaultapps")
-                                { UseShellExecute = true });
-                    }
-
-                    // Relaunch from the installed location then exit this process
-                    var psi = new ProcessStartInfo(InstallExe);
-                    if (fileToOpen != null)
-                        psi.Arguments = $"\"{fileToOpen}\"";
-                    Process.Start(psi);
-                    Shutdown();
-                    return;
-                }
-                // else: user chose Run — fall through and launch normally
-            }
-
-            // Hand shutdown responsibility back to the normal window-close behaviour
             ShutdownMode = ShutdownMode.OnLastWindowClose;
             new MainWindow().Show();
         }
@@ -163,6 +109,46 @@ namespace TDPdf
             var report = CrashReporter.Report(e.Exception, "Unobserved task exception");
             CrashDialog.ShowCrash(report);
             e.SetObserved();
+        }
+
+        // ============================================================
+        // Public surface used by MainWindow (portable badge / install)
+        // ============================================================
+
+        /// <summary>
+        /// True when running from outside the installed location (i.e. portable mode).
+        /// </summary>
+        internal static bool IsPortable()
+        {
+            string currentExe = Process.GetCurrentProcess().MainModule!.FileName;
+            return !string.Equals(currentExe, InstallExe, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Installs TDPdf, offers to set as default PDF handler, then relaunches
+        /// from the installed location. Returns false if installation failed or was
+        /// already installed from this path.
+        /// </summary>
+        internal static void InstallAndRelaunch(string? fileToOpen, bool wantDesktop)
+        {
+            DoInstall(wantDesktop);
+
+            if (!IsDefaultPdfHandler())
+            {
+                var res = KillerDialog.Show(null,
+                    "Would you like to set TDPdf as your default PDF viewer?\n\n" +
+                    "Opens Windows Settings → Default Apps.",
+                    AppName, MessageBoxButton.YesNo);
+                if (res == MessageBoxResult.Yes)
+                    Process.Start(new ProcessStartInfo("ms-settings:defaultapps")
+                        { UseShellExecute = true });
+            }
+
+            var psi = new ProcessStartInfo(InstallExe);
+            if (fileToOpen != null)
+                psi.Arguments = $"\"{fileToOpen}\"";
+            Process.Start(psi);
+            Application.Current.Shutdown();
         }
 
         // ============================================================

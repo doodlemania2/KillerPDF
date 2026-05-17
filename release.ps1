@@ -81,7 +81,7 @@ try {
             $signtool = $null
             $kitBase  = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
             if (Test-Path $kitBase) {
-                $signtool = Get-ChildItem "$kitBase\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+                $signtool = Get-ChildItem "$kitBase\*\x64\signtool.exe" -Recurse -ErrorAction SilentlyContinue |
                             Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
             }
             if (-not $signtool) { throw "signtool.exe not found. Install Windows SDK." }
@@ -159,7 +159,7 @@ try {
     # ── 5. Summary ───────────────────────────────────────────────────────────────
     try {
         Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-        Write-Host   "  TDPdf v1.0.0 release artifacts" -ForegroundColor White
+        Write-Host   "  TDPdf v1.1.0 release artifacts" -ForegroundColor White
         Write-Host   "  EXE  : $exe"
         if ($srcZip) { Write-Host "  SRC  : $($srcZip.FullName)" }
         Write-Host   "  SHA256: $hash" -ForegroundColor Green

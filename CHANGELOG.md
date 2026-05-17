@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-17
+
+Synced from upstream KillerPDF v1.4.0 (2b944ec, ab44bf3).
+
+### Added
+- Rotate page (upstream Issue #52). Right-click any page in the sidebar to rotate it 90° clockwise or counter-clockwise. Works on multi-page selections.
+- Insert Image tool (upstream Issue #50). Click the toolbar button, then click anywhere on the page to place a PNG, JPG, BMP, GIF, or TIFF as a resizable annotation. Drag the green corner handle to resize; burned into the PDF on save.
+- PDF link annotation support (upstream Issue #47). Clicking hyperlinks and internal cross-references in a PDF now navigates to the target page or opens the URL in the default browser. Works on both the primary page and all secondary pages in multi-page grid view.
+- New Blank Document (Ctrl+N, toolbar button). Creates a single blank A4 page as a new working document. Prompts to discard unsaved changes if a dirty file is open.
+- Typewriter tool font size picker. When the Text tool is active, a settings bar appears showing size presets (8–72pt) and a color palette. Size and color are stored per-annotation and applied when flattening to PDF.
+- Insert Blank Page. Right-clicking any page in the sidebar now shows a context menu with page-level operations: insert a blank A4 page, move up/down, extract, or delete.
+- Signature resize. Placed signatures now show a green drag handle in the bottom-right corner. Dragging it scales the signature proportionally; releasing commits the new size.
+- Multi-page grid view. When viewing a page, subsequent pages render as a tiled grid to the right and below, allowing context across multiple pages at once.
+- Fit to Width on open. Files now auto-zoom to fill the viewer width on open instead of opening at 100% and clipping wide pages.
+
+### Fixed
+- Scroll wheel in the main viewer no longer triggers page navigation. Previously, at low zoom levels where the page fit entirely in the viewport, every scroll tick caused a full page re-render.
+- Page selection no longer flashes centered before jerking left. The layout width is now managed exclusively in the Dispatcher callback, eliminating the double layout pass that caused the visual artifact.
+- "Back to TOC" and other internal links on secondary pages now navigate to the correct target instead of advancing to the next sequential page.
+- Clicking an internal link now scrolls the viewer back to the top of the target page so links pointing to page tops (e.g. TOC back-links) land correctly.
+- Internal PDF links now survive a merge. When merging PDFs, named destinations from the source document's catalog are resolved and rewritten as explicit page-object references in the merged document, so TOC and cross-reference links continue to work after merging.
+- Multi-page grid content is now centered in the viewport instead of left-aligned. Panel width is snapped to a whole number of page-width slots so HorizontalAlignment=Center has room to work.
+- Sidebar page list no longer shows empty space after the last page. The list now ends at the final page entry with no trailing dead zone.
+
+### Changed
+- Theme refresh: accent green updated to `#1ea54c`, backgrounds shifted to `#333333`/`#3a3a3a`, sidebar darkened to `#222222`, toolbar and title bar at `#222222`. Film grain overlay added to the main content area. Footer text lightened for readability.
+- Sidebar scroll is now handled by an outer ScrollViewer wrapping the page list, allowing the list to size to its content rather than stretching to fill the panel height.
+
 ## [1.0.0] - 2026-05-14
 
 ### Changed
@@ -74,13 +102,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 - Password-protected PDF support. Opening an encrypted PDF now prompts for the password instead of showing a generic error. The decrypted copy is held in a temp file for the session so all rendering and editing works normally.
 - Save Flattened PDF (photo icon in toolbar). Rasterizes every page at 150 DPI via PDFium and writes them as embedded images into a new PDF, producing a fully uneditable document. Pending annotations are burned in before rasterization.
 
-## [1.1.1] - 2026-04-18
+## [1.1.1 (KillerPDF)] - 2026-04-18
 
 ### Fixed
 - Maximize no longer covers the Windows taskbar. Added a `WM_GETMINMAXINFO` hook so the frameless window clamps to the monitor's work area (multi-monitor aware).
 - Two `CS8602` nullability warnings in the font-name cleanup path.
 
-## [1.1.0] - 2026-04-16
+## [1.1.0 (KillerPDF)] - 2026-04-16
 
 ### Changed
 - Retargeted from .NET 8 to .NET Framework 4.8 so end users no longer need to install a separate .NET runtime.
@@ -96,13 +124,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 
 _Historical entries to be backfilled._
 
-[Unreleased]: https://github.com/doodlemania2/TDPdf/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/doodlemania2/TDPdf/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/doodlemania2/TDPdf/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/doodlemania2/TDPdf/releases/tag/v1.0.0
 [1.3.2]: https://github.com/SteveTheKiller/KillerPDF/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/SteveTheKiller/KillerPDF/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/SteveTheKiller/KillerPDF/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/SteveTheKiller/KillerPDF/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/SteveTheKiller/KillerPDF/compare/v1.1.1...v1.2.0
-[1.1.1]: https://github.com/SteveTheKiller/KillerPDF/releases/tag/v1.1.1
-[1.1.0]: https://github.com/SteveTheKiller/KillerPDF/releases/tag/v1.1.0
+[1.1.1 (KillerPDF)]: https://github.com/SteveTheKiller/KillerPDF/releases/tag/v1.1.1
+[1.1.0 (KillerPDF)]: https://github.com/SteveTheKiller/KillerPDF/releases/tag/v1.1.0
 [1.0.1]: https://github.com/SteveTheKiller/KillerPDF/releases/tag/v1.0.1
