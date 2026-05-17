@@ -135,7 +135,7 @@ namespace TDPdf
 
             if (!IsDefaultPdfHandler())
             {
-                var res = KillerDialog.Show(null,
+                var res = TdpDialog.Show(null,
                     "Would you like to set TDPdf as your default PDF viewer?\n\n" +
                     "Opens Windows Settings → Default Apps.",
                     AppName, MessageBoxButton.YesNo);

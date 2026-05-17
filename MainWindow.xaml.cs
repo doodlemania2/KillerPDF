@@ -480,7 +480,7 @@ namespace TDPdf
 
         private void Install_Click(object sender, RoutedEventArgs e)
         {
-            var res = KillerDialog.Show(this,
+            var res = TdpDialog.Show(this,
                 "Install TDPdf to your user profile?\n\n" +
                 "• Start Menu shortcut\n" +
                 "• Added to \"Open with\" for .pdf files\n" +
@@ -525,7 +525,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Could not open the URL:\n{ex.Message}", "TDPdf",
+                TdpDialog.Show(this, $"Could not open the URL:\n{ex.Message}", "TDPdf",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -540,7 +540,7 @@ namespace TDPdf
                 "Released under the GNU General Public License v3.0.\n" +
                 "Forked from SteveTheKiller/KillerPDF.\n\n" +
                 "https://github.com/doodlemania2/TDPdf";
-            KillerDialog.Show(this, message, "About TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
+            TdpDialog.Show(this, message, "About TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
 
@@ -548,7 +548,7 @@ namespace TDPdf
         {
             if (_isDirty)
             {
-                var res = KillerDialog.Show(this,
+                var res = TdpDialog.Show(this,
                     "You have unsaved changes. Close TDPdf without saving?",
                     "TDPdf", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (res != MessageBoxResult.Yes)
@@ -664,7 +664,7 @@ namespace TDPdf
 
             TDPdf.Properties.Settings.Default.UseNativeWindowFrame = requested;
             TDPdf.Properties.Settings.Default.Save();
-            KillerDialog.Show(this,
+            TdpDialog.Show(this,
                 "Restart required for the native window frame setting to take effect.",
                 "TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -764,7 +764,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Rotate failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Rotate failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -832,13 +832,13 @@ namespace TDPdf
                 catch (Exception ex2)
                 {
                     SetFileOperationBusy(false);
-                    KillerDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                    TdpDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             catch (Exception ex)
             {
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Failed to open PDF:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Failed to open PDF:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -2663,7 +2663,7 @@ namespace TDPdf
             {
                 if (strokes.Count == 0)
                 {
-                    KillerDialog.Show(this, "Draw a signature first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    TdpDialog.Show(this, "Draw a signature first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -2745,7 +2745,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Failed to import image:\n{ex.Message}", "TDPdf",
+                TdpDialog.Show(this, $"Failed to import image:\n{ex.Message}", "TDPdf",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -2823,7 +2823,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Could not load image:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Could not load image:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -3345,20 +3345,20 @@ namespace TDPdf
         {
             if (_doc is null || _currentFile is null)
             {
-                KillerDialog.Show(this, "Open a PDF first.");
+                TdpDialog.Show(this, "Open a PDF first.");
                 return;
             }
 
             if (_activeCrop is null)
             {
-                KillerDialog.Show(this, "Drag a crop rectangle first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
+                TdpDialog.Show(this, "Drag a crop rectangle first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
             int pageIdx = _activeCrop.PageIndex;
             if (pageIdx < 0 || pageIdx >= _doc.PageCount || !_renderDims.ContainsKey(pageIdx))
             {
-                KillerDialog.Show(this, "The selected crop page is no longer available.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
+                TdpDialog.Show(this, "The selected crop page is no longer available.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
                 ClearCropSelection();
                 return;
             }
@@ -3411,7 +3411,7 @@ namespace TDPdf
                 }
                 catch { }
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Crop failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Crop failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -4894,7 +4894,7 @@ namespace TDPdf
             if (_doc is null) return;
             if (_isDirty)
             {
-                var res = KillerDialog.Show(this,
+                var res = TdpDialog.Show(this,
                     "You have unsaved changes. Close this file without saving?",
                     "TDPdf", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (res != MessageBoxResult.Yes) return;
@@ -4947,7 +4947,7 @@ namespace TDPdf
         {
             if (_isDirty)
             {
-                var res = KillerDialog.Show(this,
+                var res = TdpDialog.Show(this,
                     "You have unsaved changes. Discard them and create a new document?",
                     "TDPdf", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (res != MessageBoxResult.Yes) return;
@@ -4971,7 +4971,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Could not create new document:\n{ex.Message}",
+                TdpDialog.Show(this, $"Could not create new document:\n{ex.Message}",
                     "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -4984,7 +4984,7 @@ namespace TDPdf
 
         private void Merge_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             var doc = _doc;
             var dlg = new OpenFileDialog { Filter = "PDF files|*.pdf", Title = "Select PDF to merge", Multiselect = true };
             if (dlg.ShowDialog() != true) return;
@@ -5012,7 +5012,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Merge failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Merge failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -5193,10 +5193,10 @@ namespace TDPdf
 
         private void Split_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null || _currentFile is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             var currentFile = _currentFile;
             var selected = PageList.SelectedItems;
-            if (selected.Count == 0) { KillerDialog.Show(this, "Select pages to extract."); return; }
+            if (selected.Count == 0) { TdpDialog.Show(this, "Select pages to extract."); return; }
             var dlg = new SaveFileDialog { Filter = "PDF files|*.pdf", Title = "Save extracted pages as" };
             if (dlg.ShowDialog() != true) return;
             try
@@ -5212,17 +5212,17 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Split failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Split failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void Delete_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             var doc = _doc;
             var selected = PageList.SelectedItems;
-            if (selected.Count == 0) { KillerDialog.Show(this, "Select pages to delete."); return; }
-            var result = KillerDialog.Show(this, $"Delete {selected.Count} {(selected.Count == 1 ? "page" : "pages")}?", "TDPdf",
+            if (selected.Count == 0) { TdpDialog.Show(this, "Select pages to delete."); return; }
+            var result = TdpDialog.Show(this, $"Delete {selected.Count} {(selected.Count == 1 ? "page" : "pages")}?", "TDPdf",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (result != MessageBoxResult.Yes) return;
             try
@@ -5236,13 +5236,13 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Delete failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Delete failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void InsertBlankPage_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             var doc = _doc;
             int insertAfter = PageList.SelectedIndex >= 0 ? PageList.SelectedIndex : doc.PageCount - 1;
             try
@@ -5255,7 +5255,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Insert failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Insert failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -5285,7 +5285,7 @@ namespace TDPdf
 
         private async void SaveAs_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null || _currentFile is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
             var dlg = new SaveFileDialog { Filter = "PDF files|*.pdf", Title = "Save PDF as" };
             if (dlg.ShowDialog() != true) return;
@@ -5329,7 +5329,7 @@ namespace TDPdf
             catch (Exception ex)
             {
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Save failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Save failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -5339,7 +5339,7 @@ namespace TDPdf
 
         private async void SaveFlattened_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null || _currentFile is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
             var dlg = new SaveFileDialog { Filter = "PDF files|*.pdf", Title = "Save Flattened PDF" };
             if (dlg.ShowDialog() != true) return;
@@ -5384,7 +5384,7 @@ namespace TDPdf
             catch (Exception ex)
             {
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Flatten failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Flatten failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -5411,7 +5411,7 @@ namespace TDPdf
 
         private void Print_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null || _currentFile is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
             try
             {
@@ -5420,7 +5420,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Print failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Print failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -5873,7 +5873,7 @@ namespace TDPdf
     // ============================================================
     // Themed dialog — replaces MessageBox for dark-UI consistency
     // ============================================================
-    internal static class KillerDialog
+    internal static class TdpDialog
     {
         private static SolidColorBrush Brush(string key)
         {

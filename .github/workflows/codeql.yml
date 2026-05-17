@@ -26,7 +26,7 @@ concurrency:
 jobs:
   analyze:
     name: Analyze (csharp)
-    runs-on: killerpdf
+    runs-on: tdpdf
 
     steps:
       - uses: actions/checkout@v4
