@@ -11,6 +11,10 @@ PDF editor for Windows. View, annotate, merge, split, edit text, draw, sign, pri
 - Inline text editing with font matching against the original document
 - Text boxes, freehand drawing, and highlight overlays with adjustable color, size, and opacity
 - Draw and save reusable signatures or import a PNG/JPG/BMP image as a signature, click to place anywhere on a page
+- Insert images onto any page as resizable annotations — drag the corner handle to scale, burned into the PDF on save
+- Right-click sidebar: insert blank page, rotate CW/CCW, move up/down, extract, or delete — works on multi-page selections
+- Clickable PDF links and internal cross-references, including TOC back-links
+- Multi-page grid view at low zoom levels for context across the whole document
 - Zoom preset dropdown with scroll-wheel sync
 - Full-text search across the entire document with result highlighting, drag-select to copy text
 - Unsaved-changes protection with dirty tracking and title bar indicator
@@ -18,7 +22,13 @@ PDF editor for Windows. View, annotate, merge, split, edit text, draw, sign, pri
 - Print with annotations flattened into the output
 - Save Flattened PDF: rasterizes every page at 150 DPI via PDFium into a fully uneditable document
 - Password-protected PDF support: prompts for password instead of erroring, decrypted copy held in temp for the session
-- Self-installing EXE: Install or Run dialog on first launch, installs per-user to %LOCALAPPDATA% (no UAC), registers as PDF file handler, adds Start Menu shortcut, self-uninstalls cleanly
+- Self-installing EXE: running from outside the install path shows an Install / Run Portable dialog; running a newer version shows an Update prompt instead. Installs per-user to %LOCALAPPDATA% (no UAC), registers as PDF file handler, adds Start Menu and optional Desktop shortcuts, uninstalls cleanly via Add/Remove Programs
+
+## Screenshots
+
+![TDPdf image annotation](screenshots/add_image.png)
+
+![TDPdf right-click sidebar](screenshots/right_click_sidebar.png)
 
 ## Requirements
 

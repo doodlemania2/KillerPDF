@@ -14,6 +14,9 @@ publish/
 # Local notes / scratch
 *.odt
 
+# Cloudflare Wrangler
+.wrangler/
+
 # OS junk
 Thumbs.db
 .DS_Store

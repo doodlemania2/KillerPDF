@@ -3,11 +3,23 @@ using System.Windows.Media;
 
 namespace TDPdf
 {
-    public enum EditTool { Select, Text, Highlight, Draw, Signature, EditText, EditImage, Crop }
+    public enum EditTool { Select, Text, Highlight, Draw, Signature, Image, EditText, EditImage, Crop }
 
     public abstract class PageAnnotation
     {
         public int PageIndex { get; set; }
+    }
+
+    /// <summary>
+    /// Base class for placed/resizable annotations (signature, image).
+    /// Carries the shared position, scale, and source-dimension properties used by the resize handle.
+    /// </summary>
+    public abstract class PlacedAnnotation : PageAnnotation
+    {
+        public Point Position { get; set; }
+        public double Scale { get; set; } = 0.5;
+        public double SourceWidth { get; set; } = 400;
+        public double SourceHeight { get; set; } = 150;
     }
 
     public class TextAnnotation : PageAnnotation
@@ -15,6 +27,13 @@ namespace TDPdf
         public Point Position { get; set; }
         public string Content { get; set; } = "";
         public double FontSize { get; set; } = 14;
+        public byte ColorR { get; set; } = 0;
+        public byte ColorG { get; set; } = 0;
+        public byte ColorB { get; set; } = 0;
+        public byte ColorA { get; set; } = 255;
+
+        public Color GetColor() => Color.FromArgb(ColorA, ColorR, ColorG, ColorB);
+        public void SetColor(Color c) { ColorR = c.R; ColorG = c.G; ColorB = c.B; ColorA = c.A; }
     }
 
     public class InkAnnotation : PageAnnotation
@@ -78,15 +97,20 @@ namespace TDPdf
     /// <summary>
     /// A signature placed on a PDF page: either ink strokes or an imported image.
     /// </summary>
-    public class SignatureAnnotation : PageAnnotation
+    public class SignatureAnnotation : PlacedAnnotation
     {
-        public Point Position { get; set; }
-        public double Scale { get; set; } = 0.5;
         public List<List<Point>> Strokes { get; set; } = new();
-        public double SourceWidth { get; set; } = 400;
-        public double SourceHeight { get; set; } = 150;
         /// <summary>Base-64 encoded PNG. Non-null = image sig; null = drawn strokes.</summary>
         public string? ImageData { get; set; }
+    }
+
+    /// <summary>
+    /// An image placed on a PDF page as a resizable annotation.
+    /// </summary>
+    public class ImageAnnotation : PlacedAnnotation
+    {
+        /// <summary>Base-64 encoded image bytes (PNG, JPG, BMP, etc.).</summary>
+        public string ImageData { get; set; } = "";
     }
 
     /// <summary>
