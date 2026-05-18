@@ -30,6 +30,11 @@ namespace TDPdf
         public static readonly RoutedUICommand ZoomInRoutedCommand = new("Zoom In", "ZoomIn", typeof(MainWindow));
         public static readonly RoutedUICommand ZoomOutRoutedCommand = new("Zoom Out", "ZoomOut", typeof(MainWindow));
         public static readonly RoutedUICommand ZoomResetRoutedCommand = new("Reset Zoom", "ZoomReset", typeof(MainWindow));
+        public static readonly RoutedUICommand NewDocumentCommand = new("New Document", "NewDocument", typeof(MainWindow));
+        public static readonly RoutedUICommand CloseFileCommand = new("Close File", "CloseFile", typeof(MainWindow));
+        public static readonly RoutedUICommand UndoCommand = new("Undo", "Undo", typeof(MainWindow));
+        public static readonly RoutedUICommand SaveAsCommand = new("Save As", "SaveAs", typeof(MainWindow));
+        public static readonly RoutedUICommand AboutCommand = new("About TDPdf", "About", typeof(MainWindow));
 
         public ZoomViewModel Zoom { get; } = new();
 
@@ -249,6 +254,36 @@ namespace TDPdf
             ToggleSearchBar();
         }
 
+        private void NewCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            New_Click(sender, e);
+        }
+
+        private void CloseFileCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            CloseFile();
+        }
+
+        private void UndoCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            Undo_Click(sender, e);
+        }
+
+        private void SaveAsCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            SaveAs_Click(sender, e);
+        }
+
+        private void AboutCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            if (ShouldIgnoreGlobalShortcut()) return;
+            ShowAboutDialog();
+        }
+
         private void DropZone_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter || e.Key == Key.Space)
@@ -336,6 +371,8 @@ namespace TDPdf
         {
             _customTitleBar.Visibility = _useNativeWindowFrame ? Visibility.Collapsed : Visibility.Visible;
             _titleBarRow.Height = _useNativeWindowFrame ? new GridLength(0) : new GridLength(36);
+            // Native frames provide a built-in resize border; only the frameless mode needs the grip.
+            ResizeMode = _useNativeWindowFrame ? ResizeMode.CanResize : ResizeMode.CanResizeWithGrip;
         }
 
         private void ThemeManager_ThemeChanged(object? sender, EventArgs e)
@@ -443,7 +480,7 @@ namespace TDPdf
 
         private void Install_Click(object sender, RoutedEventArgs e)
         {
-            var res = KillerDialog.Show(this,
+            var res = TdpDialog.Show(this,
                 "Install TDPdf to your user profile?\n\n" +
                 "• Start Menu shortcut\n" +
                 "• Added to \"Open with\" for .pdf files\n" +
@@ -465,11 +502,53 @@ namespace TDPdf
 
         private void CloseBtn_Click(object sender, RoutedEventArgs e) => Close();
 
+        // ============================================================
+        // Menu handlers
+        // ============================================================
+
+        private void Exit_Click(object sender, RoutedEventArgs e) => Close();
+
+        private void HelpGitHub_Click(object sender, RoutedEventArgs e) =>
+            OpenExternalUrl("https://github.com/doodlemania2/TDPdf");
+
+        private void HelpReportIssue_Click(object sender, RoutedEventArgs e) =>
+            OpenExternalUrl("https://github.com/doodlemania2/TDPdf/issues/new");
+
+        private void HelpChangelog_Click(object sender, RoutedEventArgs e) =>
+            OpenExternalUrl("https://github.com/doodlemania2/TDPdf/blob/main/CHANGELOG.md");
+
+        private void OpenExternalUrl(string url)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                TdpDialog.Show(this, $"Could not open the URL:\n{ex.Message}", "TDPdf",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ShowAboutDialog()
+        {
+            var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            var versionLine = v != null ? $"Version {v.Major}.{v.Minor}.{v.Build}" : "Version unknown";
+            var message =
+                $"TDPdf — A Windows PDF editor by The Doodle Project.\n\n" +
+                $"{versionLine}\n\n" +
+                "Released under the GNU General Public License v3.0.\n" +
+                "Forked from SteveTheKiller/KillerPDF.\n\n" +
+                "https://github.com/doodlemania2/TDPdf";
+            TdpDialog.Show(this, message, "About TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
             if (_isDirty)
             {
-                var res = KillerDialog.Show(this,
+                var res = TdpDialog.Show(this,
                     "You have unsaved changes. Close TDPdf without saving?",
                     "TDPdf", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (res != MessageBoxResult.Yes)
@@ -585,7 +664,7 @@ namespace TDPdf
 
             TDPdf.Properties.Settings.Default.UseNativeWindowFrame = requested;
             TDPdf.Properties.Settings.Default.Save();
-            KillerDialog.Show(this,
+            TdpDialog.Show(this,
                 "Restart required for the native window frame setting to take effect.",
                 "TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -685,7 +764,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Rotate failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Rotate failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -753,13 +832,13 @@ namespace TDPdf
                 catch (Exception ex2)
                 {
                     SetFileOperationBusy(false);
-                    KillerDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                    TdpDialog.Show(this, $"Failed to open PDF:\n{ex2.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             catch (Exception ex)
             {
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Failed to open PDF:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Failed to open PDF:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -2584,7 +2663,7 @@ namespace TDPdf
             {
                 if (strokes.Count == 0)
                 {
-                    KillerDialog.Show(this, "Draw a signature first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    TdpDialog.Show(this, "Draw a signature first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -2666,7 +2745,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Failed to import image:\n{ex.Message}", "TDPdf",
+                TdpDialog.Show(this, $"Failed to import image:\n{ex.Message}", "TDPdf",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -2744,7 +2823,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Could not load image:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Could not load image:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -3266,20 +3345,20 @@ namespace TDPdf
         {
             if (_doc is null || _currentFile is null)
             {
-                KillerDialog.Show(this, "Open a PDF first.");
+                TdpDialog.Show(this, "Open a PDF first.");
                 return;
             }
 
             if (_activeCrop is null)
             {
-                KillerDialog.Show(this, "Drag a crop rectangle first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
+                TdpDialog.Show(this, "Drag a crop rectangle first.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
             int pageIdx = _activeCrop.PageIndex;
             if (pageIdx < 0 || pageIdx >= _doc.PageCount || !_renderDims.ContainsKey(pageIdx))
             {
-                KillerDialog.Show(this, "The selected crop page is no longer available.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
+                TdpDialog.Show(this, "The selected crop page is no longer available.", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Warning);
                 ClearCropSelection();
                 return;
             }
@@ -3332,7 +3411,7 @@ namespace TDPdf
                 }
                 catch { }
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Crop failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Crop failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -4460,34 +4539,9 @@ namespace TDPdf
             // Don't intercept keys when typing in a TextBox
             if (_activeTextBox is not null && _activeTextBox.IsFocused) return;
 
-            if (Keyboard.Modifiers == ModifierKeys.Alt)
-            {
-                var accessKey = e.SystemKey != Key.None ? e.SystemKey : e.Key;
-                switch (accessKey)
-                {
-                    case Key.O: Open_Click(this, e); break;
-                    case Key.W: CloseFile(); break;
-                    case Key.M: Merge_Click(this, e); break;
-                    case Key.E: Split_Click(this, e); break;
-                    case Key.D: Delete_Click(this, e); break;
-                    case Key.U: MoveUp_Click(this, e); break;
-                    case Key.N: MoveDown_Click(this, e); break;
-                    case Key.S: SaveAs_Click(this, e); break;
-                    case Key.F: SaveFlattened_Click(this, e); break;
-                    case Key.P: Print_Click(this, e); break;
-                    case Key.Q: SetTool(EditTool.Select); break;
-                    case Key.T: SetTool(EditTool.Text); break;
-                    case Key.H: SetTool(EditTool.Highlight); break;
-                    case Key.R: SetTool(EditTool.Draw); break;
-                    case Key.G: ToolSignature_Click(this, e); break;
-                    case Key.C: ToolCrop_Click(this, e); break;
-                    case Key.Z: Undo_Click(this, e); break;
-                    case Key.L: ClearAnnotations_Click(this, e); break;
-                    default: return;
-                }
-                e.Handled = true;
-                return;
-            }
+            // Standard shortcuts (Ctrl+N/O/S/W/Z, Ctrl+Shift+S, Ctrl+P, Ctrl+F, F1, Alt+F/E/V/T/H)
+            // are routed via CommandBindings and the Menu's access keys — no need to intercept
+            // them here. We still handle the genuinely context-sensitive keys below.
 
             if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control)
             {
@@ -4507,26 +4561,6 @@ namespace TDPdf
             else if (e.Key == Key.Delete && _selectedAnnotation is not null)
             {
                 DeleteSelected();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                Undo_Click(this, e);
-                e.Handled = true;
-            }
-            else if (e.Key == Key.W && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                CloseFile();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                Open_Click(this, e);
-                e.Handled = true;
-            }
-            else if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                NewDocument();
                 e.Handled = true;
             }
         }
@@ -4860,7 +4894,7 @@ namespace TDPdf
             if (_doc is null) return;
             if (_isDirty)
             {
-                var res = KillerDialog.Show(this,
+                var res = TdpDialog.Show(this,
                     "You have unsaved changes. Close this file without saving?",
                     "TDPdf", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (res != MessageBoxResult.Yes) return;
@@ -4913,7 +4947,7 @@ namespace TDPdf
         {
             if (_isDirty)
             {
-                var res = KillerDialog.Show(this,
+                var res = TdpDialog.Show(this,
                     "You have unsaved changes. Discard them and create a new document?",
                     "TDPdf", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (res != MessageBoxResult.Yes) return;
@@ -4937,7 +4971,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Could not create new document:\n{ex.Message}",
+                TdpDialog.Show(this, $"Could not create new document:\n{ex.Message}",
                     "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -4950,7 +4984,7 @@ namespace TDPdf
 
         private void Merge_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             var doc = _doc;
             var dlg = new OpenFileDialog { Filter = "PDF files|*.pdf", Title = "Select PDF to merge", Multiselect = true };
             if (dlg.ShowDialog() != true) return;
@@ -4978,7 +5012,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Merge failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Merge failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -5159,10 +5193,10 @@ namespace TDPdf
 
         private void Split_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null || _currentFile is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             var currentFile = _currentFile;
             var selected = PageList.SelectedItems;
-            if (selected.Count == 0) { KillerDialog.Show(this, "Select pages to extract."); return; }
+            if (selected.Count == 0) { TdpDialog.Show(this, "Select pages to extract."); return; }
             var dlg = new SaveFileDialog { Filter = "PDF files|*.pdf", Title = "Save extracted pages as" };
             if (dlg.ShowDialog() != true) return;
             try
@@ -5178,17 +5212,17 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Split failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Split failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void Delete_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             var doc = _doc;
             var selected = PageList.SelectedItems;
-            if (selected.Count == 0) { KillerDialog.Show(this, "Select pages to delete."); return; }
-            var result = KillerDialog.Show(this, $"Delete {selected.Count} {(selected.Count == 1 ? "page" : "pages")}?", "TDPdf",
+            if (selected.Count == 0) { TdpDialog.Show(this, "Select pages to delete."); return; }
+            var result = TdpDialog.Show(this, $"Delete {selected.Count} {(selected.Count == 1 ? "page" : "pages")}?", "TDPdf",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (result != MessageBoxResult.Yes) return;
             try
@@ -5202,13 +5236,13 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Delete failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Delete failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void InsertBlankPage_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             var doc = _doc;
             int insertAfter = PageList.SelectedIndex >= 0 ? PageList.SelectedIndex : doc.PageCount - 1;
             try
@@ -5221,7 +5255,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Insert failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Insert failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -5251,7 +5285,7 @@ namespace TDPdf
 
         private async void SaveAs_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null || _currentFile is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
             var dlg = new SaveFileDialog { Filter = "PDF files|*.pdf", Title = "Save PDF as" };
             if (dlg.ShowDialog() != true) return;
@@ -5295,7 +5329,7 @@ namespace TDPdf
             catch (Exception ex)
             {
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Save failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Save failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -5305,7 +5339,7 @@ namespace TDPdf
 
         private async void SaveFlattened_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null || _currentFile is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
             var dlg = new SaveFileDialog { Filter = "PDF files|*.pdf", Title = "Save Flattened PDF" };
             if (dlg.ShowDialog() != true) return;
@@ -5350,7 +5384,7 @@ namespace TDPdf
             catch (Exception ex)
             {
                 SetFileOperationBusy(false);
-                KillerDialog.Show(this, $"Flatten failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Flatten failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -5377,7 +5411,7 @@ namespace TDPdf
 
         private void Print_Click(object sender, RoutedEventArgs e)
         {
-            if (_doc is null || _currentFile is null) { KillerDialog.Show(this, "Open a PDF first."); return; }
+            if (_doc is null || _currentFile is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             CommitActiveTextBox();
             try
             {
@@ -5386,7 +5420,7 @@ namespace TDPdf
             }
             catch (Exception ex)
             {
-                KillerDialog.Show(this, $"Print failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
+                TdpDialog.Show(this, $"Print failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -5839,7 +5873,7 @@ namespace TDPdf
     // ============================================================
     // Themed dialog — replaces MessageBox for dark-UI consistency
     // ============================================================
-    internal static class KillerDialog
+    internal static class TdpDialog
     {
         private static SolidColorBrush Brush(string key)
         {
@@ -5871,14 +5905,12 @@ namespace TDPdf
             return brush;
         }
 
-#pragma warning disable IDE0060 // image intentionally kept for API parity with MessageBox; not yet rendered
         public static MessageBoxResult Show(
             Window? owner,
             string message,
             string title = "TDPdf",
             MessageBoxButton buttons = MessageBoxButton.OK,
             MessageBoxImage image = MessageBoxImage.None)
-#pragma warning restore IDE0060
         {
             var result = MessageBoxResult.OK;
             var green = Brush("AccentGreen");
@@ -5889,6 +5921,8 @@ namespace TDPdf
             var greenDim = Brush("AccentGreenDim");
             var greenHov = Brush("BgPressed");
             var hover = Brush("BgHover");
+            var danger = Brush("DangerRed");
+            var warning = Brush("WarningOrange");
 
             var win = new Window
             {
@@ -5932,16 +5966,38 @@ namespace TDPdf
             };
             root.Children.Add(titleBar);
 
-            // Message
-            var msgBorder = new Border { Padding = new Thickness(20, 16, 20, 8) };
-            msgBorder.Child = new TextBlock
+            // Message body: icon column + wrapped message text.
+            var msgGrid = new Grid { Margin = new Thickness(20, 16, 20, 8) };
+            msgGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            msgGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            if (TryGetMessageBoxGlyph(image, green, warning, danger, out var glyphChar, out var glyphBrush))
             {
-                Text        = message,
-                Foreground  = text,
-                FontSize    = 13,
-                TextWrapping = TextWrapping.Wrap
+                var glyph = new TextBlock
+                {
+                    Text       = glyphChar,
+                    FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"),
+                    FontSize   = 28,
+                    Foreground = glyphBrush,
+                    VerticalAlignment   = VerticalAlignment.Top,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin              = new Thickness(0, 0, 14, 0)
+                };
+                Grid.SetColumn(glyph, 0);
+                msgGrid.Children.Add(glyph);
+            }
+
+            var msgText = new TextBlock
+            {
+                Text         = message,
+                Foreground   = text,
+                FontSize     = 13,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center
             };
-            root.Children.Add(msgBorder);
+            Grid.SetColumn(msgText, 1);
+            msgGrid.Children.Add(msgText);
+            root.Children.Add(msgGrid);
 
             var btnPanel = new StackPanel
             {
@@ -5972,7 +6028,7 @@ namespace TDPdf
                 return new ControlTemplate(typeof(Button)) { VisualTree = bf };
             }
 
-            Button MakeBtn(string label, MessageBoxResult res, bool accent = false)
+            Button MakeBtn(string label, MessageBoxResult res, bool accent = false, bool isDefault = false, bool isCancel = false)
             {
                 var bgNorm = accent ? greenDim : panel;
                 var bgHov  = accent ? greenHov : hover;
@@ -5987,7 +6043,9 @@ namespace TDPdf
                     BorderThickness = new Thickness(1),
                     Cursor          = Cursors.Hand,
                     FontSize        = 12,
-                    Template        = MakeBtnTemplate()
+                    Template        = MakeBtnTemplate(),
+                    IsDefault       = isDefault,
+                    IsCancel        = isCancel
                 };
                 btn.Click      += (_, _2) => { result = res; win.Close(); };
                 btn.MouseEnter += (_, _2) => btn.Background = bgHov;
@@ -5995,23 +6053,28 @@ namespace TDPdf
                 return btn;
             }
 
+            Button? defaultBtn = null;
             switch (buttons)
             {
                 case MessageBoxButton.OK:
-                    btnPanel.Children.Add(MakeBtn("OK", MessageBoxResult.OK, accent: true));
+                    defaultBtn = MakeBtn("OK", MessageBoxResult.OK, accent: true, isDefault: true, isCancel: true);
+                    btnPanel.Children.Add(defaultBtn);
                     break;
                 case MessageBoxButton.OKCancel:
-                    btnPanel.Children.Add(MakeBtn("OK",     MessageBoxResult.OK,     accent: true));
-                    btnPanel.Children.Add(MakeBtn("Cancel", MessageBoxResult.Cancel));
+                    defaultBtn = MakeBtn("OK", MessageBoxResult.OK, accent: true, isDefault: true);
+                    btnPanel.Children.Add(defaultBtn);
+                    btnPanel.Children.Add(MakeBtn("Cancel", MessageBoxResult.Cancel, isCancel: true));
                     break;
                 case MessageBoxButton.YesNo:
-                    btnPanel.Children.Add(MakeBtn("Yes", MessageBoxResult.Yes, accent: true));
-                    btnPanel.Children.Add(MakeBtn("No",  MessageBoxResult.No));
+                    defaultBtn = MakeBtn("Yes", MessageBoxResult.Yes, accent: true, isDefault: true);
+                    btnPanel.Children.Add(defaultBtn);
+                    btnPanel.Children.Add(MakeBtn("No", MessageBoxResult.No, isCancel: true));
                     break;
                 case MessageBoxButton.YesNoCancel:
-                    btnPanel.Children.Add(MakeBtn("Yes",    MessageBoxResult.Yes,    accent: true));
-                    btnPanel.Children.Add(MakeBtn("No",     MessageBoxResult.No));
-                    btnPanel.Children.Add(MakeBtn("Cancel", MessageBoxResult.Cancel));
+                    defaultBtn = MakeBtn("Yes", MessageBoxResult.Yes, accent: true, isDefault: true);
+                    btnPanel.Children.Add(defaultBtn);
+                    btnPanel.Children.Add(MakeBtn("No", MessageBoxResult.No));
+                    btnPanel.Children.Add(MakeBtn("Cancel", MessageBoxResult.Cancel, isCancel: true));
                     break;
             }
 
@@ -6023,8 +6086,36 @@ namespace TDPdf
 
             outerBorder.Child = root;
             win.Content = outerBorder;
+            if (defaultBtn != null)
+            {
+                var toFocus = defaultBtn;
+                win.Loaded += (_, _2) => toFocus.Focus();
+            }
             win.ShowDialog();
             return result;
+        }
+
+        private static bool TryGetMessageBoxGlyph(
+            MessageBoxImage image,
+            System.Windows.Media.Brush accent,
+            System.Windows.Media.Brush warning,
+            System.Windows.Media.Brush danger,
+            out string glyph,
+            out System.Windows.Media.Brush brush)
+        {
+            switch (image)
+            {
+                case MessageBoxImage.Information:
+                    glyph = "\uE946"; brush = accent; return true;
+                case MessageBoxImage.Warning:
+                    glyph = "\uE7BA"; brush = warning; return true;
+                case MessageBoxImage.Error:
+                    glyph = "\uEA39"; brush = danger; return true;
+                case MessageBoxImage.Question:
+                    glyph = "\uE9CE"; brush = accent; return true;
+                default:
+                    glyph = string.Empty; brush = accent; return false;
+            }
         }
     }
 }

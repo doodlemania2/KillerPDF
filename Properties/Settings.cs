@@ -17,7 +17,7 @@ namespace TDPdf.Properties
         }
 
         [UserScopedSetting]
-        [DefaultSettingValue("False")]
+        [DefaultSettingValue("True")]
         public bool UseNativeWindowFrame
         {
             get => (bool)this[nameof(UseNativeWindowFrame)];
