@@ -578,12 +578,15 @@
             </MenuItem>
             <MenuItem Header="_Tools">
                 <MenuItem Header="_Select"                                          Click="ToolSelect_Click"/>
+                <MenuItem Header="_Pan / Hand"                                      Click="ToolPan_Click"/>
                 <MenuItem Header="_Text"                                            Click="ToolText_Click"/>
                 <MenuItem Header="Edit Existing Te_xt"                              Click="ToolEditText_Click"/>
                 <MenuItem Header="Edit Existing _Image"                             Click="ToolEditImage_Click"/>
                 <MenuItem Header="I_nsert Image"                                    Click="ToolImage_Click"/>
                 <MenuItem Header="_Highlight"                                       Click="ToolHighlight_Click"/>
+                <MenuItem Header="Sh_ape"                                           Click="ToolShape_Click"/>
                 <MenuItem Header="_Draw"                                            Click="ToolDraw_Click"/>
+                <MenuItem Header="_Eraser"                                          Click="ToolErase_Click"/>
                 <MenuItem Header="Si_gnature"                                       Click="ToolSignature_Click"/>
                 <MenuItem Header="_Crop"                                            Click="ToolCrop_Click"/>
                 <Separator/>
@@ -637,12 +640,15 @@
                 <!-- Edit tools + zoom -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="ToolSelectBtn" Content="&#xE8B3;" Style="{StaticResource ToolbarButton}" Click="ToolSelect_Click" ToolTip="Select Tool (Alt+Q)" KeyboardNavigation.TabIndex="14" AutomationProperties.Name="Select tool" AutomationProperties.HelpText="Select annotations, drag to select text, or double-click text to edit. Access key Alt+Q." AutomationProperties.AccessKey="Q" AutomationProperties.LabeledBy="{Binding ElementName=SelectToolButtonLabel}"/>
+                    <Button x:Name="ToolPanBtn" Content="&#xE7C9;" Style="{StaticResource ToolbarButton}" Click="ToolPan_Click" ToolTip="Pan / Hand Tool — drag the page; middle-click to pan in any tool" KeyboardNavigation.TabIndex="14" AutomationProperties.Name="Pan tool" AutomationProperties.HelpText="Drag the page to scroll. Middle-mouse drag also pans while any tool is active."/>
                     <Button x:Name="ToolTextBtn" Content="&#xE8D2;" Style="{StaticResource ToolbarButton}" Click="ToolText_Click" ToolTip="Text Tool (Alt+T)" KeyboardNavigation.TabIndex="15" AutomationProperties.Name="Text tool" AutomationProperties.HelpText="Click the page to add text. Access key Alt+T." AutomationProperties.AccessKey="T" AutomationProperties.LabeledBy="{Binding ElementName=TextToolButtonLabel}"/>
                     <Button x:Name="ToolEditTextBtn" Content="&#xE104;" Style="{StaticResource ToolbarButton}" Click="ToolEditText_Click" ToolTip="Edit Existing Text" KeyboardNavigation.TabIndex="16" AutomationProperties.Name="Edit existing text tool" AutomationProperties.HelpText="Click a PDF text run to white-out and redraw it." AutomationProperties.LabeledBy="{Binding ElementName=EditTextToolButtonLabel}"/>
                     <Button x:Name="ToolEditImageBtn" Content="&#xEB9F;" Style="{StaticResource ToolbarButton}" Click="ToolEditImage_Click" ToolTip="Edit Existing Image" KeyboardNavigation.TabIndex="17" AutomationProperties.Name="Edit existing image tool" AutomationProperties.HelpText="Click a PDF image to replace, delete, or resize it." AutomationProperties.LabeledBy="{Binding ElementName=EditImageToolButtonLabel}"/>
                     <Button x:Name="ToolImageBtn" Content="&#xE91B;" Style="{StaticResource ToolbarButton}" Click="ToolImage_Click" ToolTip="Insert Image (Alt+I)" KeyboardNavigation.TabIndex="18" AutomationProperties.Name="Insert image tool" AutomationProperties.HelpText="Click the page to insert a PNG/JPG/BMP/GIF/TIFF as a resizable annotation. Access key Alt+I." AutomationProperties.AccessKey="I"/>
                     <Button x:Name="ToolHighlightBtn" Content="&#xED56;" Style="{StaticResource ToolbarButton}" Click="ToolHighlight_Click" ToolTip="Highlight Tool (Alt+H)" KeyboardNavigation.TabIndex="19" AutomationProperties.Name="Highlight tool" AutomationProperties.HelpText="Drag on the page to add a highlight. Access key Alt+H." AutomationProperties.AccessKey="H" AutomationProperties.LabeledBy="{Binding ElementName=HighlightToolButtonLabel}"/>
+                    <Button x:Name="ToolShapeBtn" Content="&#xF158;" Style="{StaticResource ToolbarButton}" Click="ToolShape_Click" ToolTip="Shape Tool — rectangle / ellipse / line with stroke and fill" KeyboardNavigation.TabIndex="19" AutomationProperties.Name="Shape tool" AutomationProperties.HelpText="Drag on the page to draw a rectangle, ellipse, or line."/>
                     <Button x:Name="ToolDrawBtn" Content="&#xED63;" Style="{StaticResource ToolbarButton}" Click="ToolDraw_Click" ToolTip="Draw Tool (Alt+R)" KeyboardNavigation.TabIndex="20" AutomationProperties.Name="Draw tool" AutomationProperties.HelpText="Draw freehand ink on the page. Access key Alt+R." AutomationProperties.AccessKey="R" AutomationProperties.LabeledBy="{Binding ElementName=DrawToolButtonLabel}"/>
+                    <Button x:Name="ToolEraseBtn" Content="&#xE75C;" Style="{StaticResource ToolbarButton}" Click="ToolErase_Click" ToolTip="Eraser — click an annotation to remove it" KeyboardNavigation.TabIndex="20" AutomationProperties.Name="Eraser tool" AutomationProperties.HelpText="Click an annotation to delete it."/>
                     <Rectangle Width="1" Fill="{DynamicResource BorderDim}" Margin="4,6"/>
                     <Button x:Name="ToolSignatureBtn" Content="&#xEE56;" Style="{StaticResource ToolbarButton}" Click="ToolSignature_Click" ToolTip="Signature (Alt+G)" KeyboardNavigation.TabIndex="21" AutomationProperties.Name="Signature tool" AutomationProperties.HelpText="Create and place signatures. Access key Alt+G." AutomationProperties.AccessKey="G" AutomationProperties.LabeledBy="{Binding ElementName=SignatureButtonLabel}"/>
                     <Button x:Name="ToolCropBtn" Content="&#xE7A8;" Style="{StaticResource ToolbarButton}" Click="ToolCrop_Click" ToolTip="Crop pages (Alt+C)" KeyboardNavigation.TabIndex="22" AutomationProperties.Name="Crop tool" AutomationProperties.HelpText="Drag a rectangle on the page, then apply the crop. Access key Alt+C." AutomationProperties.AccessKey="C" AutomationProperties.LabeledBy="{Binding ElementName=CropToolButtonLabel}"/>
@@ -738,7 +744,7 @@
                     </Border>
 
                     <!-- PDF page with annotation overlay -->
-                    <ScrollViewer x:Name="PagePreviewPanel" Visibility="Collapsed" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="Transparent" Focusable="True" KeyboardNavigation.TabIndex="40" AutomationProperties.Name="PDF page preview" AutomationProperties.HelpText="Scrollable preview of the selected PDF page." AutomationProperties.LabeledBy="{Binding ElementName=PagePreviewLabel}" PreviewMouseWheel="PagePreview_PreviewMouseWheel" AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver">
+                    <ScrollViewer x:Name="PagePreviewPanel" Visibility="Collapsed" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="Transparent" Focusable="True" KeyboardNavigation.TabIndex="40" AutomationProperties.Name="PDF page preview" AutomationProperties.HelpText="Scrollable preview of the selected PDF page." AutomationProperties.LabeledBy="{Binding ElementName=PagePreviewLabel}" PreviewMouseWheel="PagePreview_PreviewMouseWheel" SizeChanged="PagePreviewPanel_SizeChanged" AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver">
                         <Border VerticalAlignment="Top" HorizontalAlignment="Center" Padding="12">
                             <Grid x:Name="PageContentGrid" IsManipulationEnabled="True" ManipulationDelta="PageContentGrid_ManipulationDelta">
                                 <Grid.LayoutTransform>
@@ -749,7 +755,7 @@
                                     <Border Background="White" Margin="0,0,12,12">
                                         <Grid>
                                             <Image x:Name="PageImage" RenderOptions.BitmapScalingMode="HighQuality" Stretch="None" AutomationProperties.Name="Rendered PDF page"/>
-                                            <Canvas x:Name="AnnotationCanvas" Background="Transparent" ClipToBounds="True" Focusable="True" KeyboardNavigation.TabIndex="41" AutomationProperties.Name="PDF annotation canvas" AutomationProperties.HelpText="Use the selected tool to add, select, edit, or delete annotations on the current page." AutomationProperties.LabeledBy="{Binding ElementName=AnnotationCanvasLabel}" PreviewMouseLeftButtonDown="Canvas_MouseLeftButtonDown" MouseMove="Canvas_MouseMove" PreviewMouseLeftButtonUp="Canvas_MouseLeftButtonUp"/>
+                                            <Canvas x:Name="AnnotationCanvas" Background="Transparent" ClipToBounds="True" Focusable="True" KeyboardNavigation.TabIndex="41" AutomationProperties.Name="PDF annotation canvas" AutomationProperties.HelpText="Use the selected tool to add, select, edit, or delete annotations on the current page." AutomationProperties.LabeledBy="{Binding ElementName=AnnotationCanvasLabel}" PreviewMouseDown="Canvas_PreviewMouseDown" PreviewMouseLeftButtonDown="Canvas_MouseLeftButtonDown" MouseMove="Canvas_MouseMove" PreviewMouseLeftButtonUp="Canvas_MouseLeftButtonUp" PreviewMouseUp="Canvas_PreviewMouseUp" LostMouseCapture="Canvas_LostMouseCapture"/>
                                         </Grid>
                                     </Border>
                                     <!-- Additional pages rendered dynamically in code-behind -->

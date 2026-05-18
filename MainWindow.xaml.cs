@@ -104,6 +104,38 @@ namespace TDPdf
         private Border? _cropConfirmBar;
         private readonly Button _toolCropBtn = null!;
 
+        // Pan tool / middle-mouse pan
+        private bool _isPanning;
+        private MouseButton? _panButton;
+        private Point _panStartViewerPoint;
+        private double _panStartHOffset;
+        private double _panStartVOffset;
+        private Cursor? _cursorBeforePan;
+
+        // Shape tool
+        private ShapeKind _shapeKind = ShapeKind.Rectangle;
+        private Color _shapeStrokeColor = Colors.Red;
+        private Color _shapeFillColor = Color.FromArgb(80, 255, 255, 0);
+        private bool _shapeHasFill;
+        private double _shapeStrokeWidth = 2;
+        private Border? _shapeSettingsBar;
+
+        // Zoom fit-mode tracking (for auto-refit on window resize)
+        private ZoomFitMode _zoomFitMode = ZoomFitMode.None;
+        private bool _applyingFitZoom;
+        private bool _fitResizePending;
+
+        // Selection move/resize for non-placed annotations
+        private bool _isMovingAnnot;
+        private PageAnnotation? _movingAnnot;
+        private Point _moveStartCanvas;
+        private object? _moveOriginalGeom;
+        private bool _isResizingAnnot;
+        private PageAnnotation? _resizingAnnot;
+        private Point _resizeStartCanvas;
+        private object? _resizeOriginalGeom;
+        private Rectangle? _annotResizeHandle;
+
         // PDF link overlays (rendered on top of the annotation canvas)
         private readonly List<Canvas> _linkOverlays = [];
 
@@ -149,6 +181,9 @@ namespace TDPdf
         private Button _toolDrawBtn = null!;
         private Button _toolSignatureBtn = null!;
         private Button _toolImageBtn = null!;
+        private Button _toolPanBtn = null!;
+        private Button _toolEraseBtn = null!;
+        private Button _toolShapeBtn = null!;
         private Button _saveAsBtnRef = null!;
         private Button _closeFileBtnRef = null!;
         private ComboBox _zoomBox = null!;
@@ -184,6 +219,9 @@ namespace TDPdf
             _toolSignatureBtn = (Button)FindName("ToolSignatureBtn")!;
             _toolImageBtn = (Button)FindName("ToolImageBtn")!;
             _toolCropBtn = (Button)FindName("ToolCropBtn")!;
+            _toolPanBtn = (Button)FindName("ToolPanBtn")!;
+            _toolEraseBtn = (Button)FindName("ToolEraseBtn")!;
+            _toolShapeBtn = (Button)FindName("ToolShapeBtn")!;
             _sidebarToggleBtn = (Button)FindName("SidebarToggleBtn")!;
             _sidebarBorder = (Border)FindName("SidebarBorder")!;
             _sidebarCol = (ColumnDefinition)FindName("SidebarCol")!;
@@ -308,6 +346,7 @@ namespace TDPdf
 
         private const int WM_GETMINMAXINFO = 0x0024;
         private const int WM_DPICHANGED = 0x02E0;
+        private const int WM_MOUSEHWHEEL = 0x020E;
         private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
         private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_NOACTIVATE = 0x0010;
@@ -326,7 +365,36 @@ namespace TDPdf
                 WmDpiChanged(hwnd, wParam, lParam);
                 handled = true;
             }
+            else if (msg == WM_MOUSEHWHEEL)
+            {
+                if (WmMouseHWheel(wParam, lParam))
+                    handled = true;
+            }
             return IntPtr.Zero;
+        }
+
+        private bool WmMouseHWheel(IntPtr wParam, IntPtr lParam)
+        {
+            if (PagePreviewPanel is null || PagePreviewPanel.Visibility != Visibility.Visible)
+                return false;
+            // wParam HIWORD = signed wheel delta (positive == right tilt on most hardware).
+            // lParam LOWORD = screen X, HIWORD = screen Y.
+            int delta = (short)((wParam.ToInt64() >> 16) & 0xFFFF);
+            int sx = (short)(lParam.ToInt64() & 0xFFFF);
+            int sy = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
+            try
+            {
+                var local = PagePreviewPanel.PointFromScreen(new Point(sx, sy));
+                if (local.X < 0 || local.Y < 0 ||
+                    local.X > PagePreviewPanel.ActualWidth ||
+                    local.Y > PagePreviewPanel.ActualHeight)
+                    return false; // cursor not over the viewer
+            }
+            catch { return false; }
+
+            if (PagePreviewPanel.ScrollableWidth <= 0) return false;
+            PagePreviewPanel.ScrollToHorizontalOffset(PagePreviewPanel.HorizontalOffset + delta / 3.0);
+            return true;
         }
 
         private void WmDpiChanged(IntPtr hwnd, IntPtr wParam, IntPtr lParam)
@@ -1560,6 +1628,7 @@ namespace TDPdf
         {
             CommitActiveTextBox();
             ClearTextSelection();
+            CancelActivePointerOperation(removePreview: true);
             _currentTool = tool;
 
             var map = new (Button btn, EditTool t)[]
@@ -1572,7 +1641,10 @@ namespace TDPdf
                 (_toolDrawBtn, EditTool.Draw),
                 (_toolSignatureBtn, EditTool.Signature),
                 (_toolImageBtn, EditTool.Image),
-                (_toolCropBtn, EditTool.Crop)
+                (_toolCropBtn, EditTool.Crop),
+                (_toolPanBtn, EditTool.Pan),
+                (_toolEraseBtn, EditTool.Erase),
+                (_toolShapeBtn, EditTool.Shape)
             };
             var green = (SolidColorBrush)FindResource("AccentGreen");
             var greenDim = (SolidColorBrush)FindResource("AccentGreenDim");
@@ -1594,6 +1666,9 @@ namespace TDPdf
                 EditTool.Signature => Cursors.Hand,
                 EditTool.Image => Cursors.Hand,
                 EditTool.Crop => Cursors.Cross,
+                EditTool.Pan => Cursors.Hand,
+                EditTool.Erase => Cursors.Cross,
+                EditTool.Shape => Cursors.Cross,
                 _ => Cursors.Arrow
             };
 
@@ -1608,6 +1683,12 @@ namespace TDPdf
                 ShowTextSettings();
             else
                 HideTextSettings();
+
+            // Show/hide shape tool settings bar
+            if (tool == EditTool.Shape)
+                ShowShapeSettings();
+            else
+                HideShapeSettings();
 
             // Hide signature popup when switching away
             if (tool != EditTool.Signature)
@@ -1624,6 +1705,57 @@ namespace TDPdf
                 HideCropConfirmBar();
             }
         }
+
+        /// <summary>
+        /// Reset any active pointer-driven canvas operation (drawing, selecting, dragging,
+        /// resizing, panning). Used when switching tools, before delete/erase, or when
+        /// capture is forcibly lost. <paramref name="removePreview"/> also tears down any
+        /// transient preview visuals (rubber-band rect, in-progress ink polyline, etc.).
+        /// </summary>
+        private void CancelActivePointerOperation(bool removePreview)
+        {
+            if (_annotationCanvas?.IsMouseCaptured == true)
+                _annotationCanvas.ReleaseMouseCapture();
+
+            _isDrawing = false;
+            _isSelecting = false;
+            _isDraggingAnnot = false;
+            _isResizingSig = false;
+            _isResizingImage = false;
+            _isMovingAnnot = false;
+            _isResizingAnnot = false;
+            _isPanning = false;
+            _panButton = null;
+
+            _activeInk = null;
+            _resizeSigAnnot = null;
+            _dragAnnot = null;
+            _resizingImageEdit = null;
+            _movingAnnot = null;
+            _resizingAnnot = null;
+            _moveOriginalGeom = null;
+            _resizeOriginalGeom = null;
+
+            if (removePreview)
+            {
+                if (_activePreview is not null && _annotationCanvas?.Children.Contains(_activePreview) == true)
+                    _annotationCanvas.Children.Remove(_activePreview);
+                if (_selectRect is not null && _annotationCanvas?.Children.Contains(_selectRect) == true)
+                    _annotationCanvas.Children.Remove(_selectRect);
+                _activePreview = null;
+                _selectRect = null;
+            }
+
+            if (_cursorBeforePan != null && _annotationCanvas != null)
+            {
+                _annotationCanvas.Cursor = _cursorBeforePan;
+                _cursorBeforePan = null;
+            }
+        }
+
+        private bool IsPointerOperationActive =>
+            _isDrawing || _isSelecting || _isDraggingAnnot || _isResizingSig ||
+            _isResizingImage || _isMovingAnnot || _isResizingAnnot || _isPanning;
 
         private void SidebarToggle_Click(object sender, RoutedEventArgs e)
         {
@@ -1656,6 +1788,9 @@ namespace TDPdf
         private void ToolHighlight_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Highlight);
         private void ToolDraw_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Draw);
         private void ToolImage_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Image);
+        private void ToolPan_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Pan);
+        private void ToolErase_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Erase);
+        private void ToolShape_Click(object sender, RoutedEventArgs e) => SetTool(EditTool.Shape);
         private void ToolCrop_Click(object sender, RoutedEventArgs e)
         {
             SetTool(EditTool.Crop);
@@ -2192,6 +2327,198 @@ namespace TDPdf
             {
                 (PagePreviewPanel.Parent as Grid)?.Children.Remove(_textSettingsBar);
                 _textSettingsBar = null;
+            }
+        }
+
+        // ============================================================
+        // Shape tool settings bar
+        // ============================================================
+
+        private static readonly Color[] ShapeStrokeColors =
+        {
+            Color.FromRgb(0, 0, 0),
+            Color.FromRgb(255, 255, 255),
+            Color.FromRgb(220, 50, 50),
+            Color.FromRgb(50, 130, 220),
+            Color.FromRgb(40, 170, 70),
+            Color.FromRgb(245, 200, 60),
+            Color.FromRgb(170, 90, 220),
+            Color.FromRgb(255, 140, 40)
+        };
+
+        private void ShowShapeSettings()
+        {
+            HideShapeSettings();
+
+            var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 4, 8, 4) };
+
+            // Shape kind toggle
+            panel.Children.Add(MakeLabel("Shape:"));
+            void AddKindToggle(string glyph, ShapeKind kind, string toolTip)
+            {
+                var btn = new Button
+                {
+                    Content = glyph,
+                    FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                    FontSize = 14,
+                    Width = 26, Height = 24,
+                    Margin = new Thickness(2, 0, 2, 0),
+                    ToolTip = toolTip,
+                    Cursor = Cursors.Hand,
+                    Background = _shapeKind == kind
+                        ? (SolidColorBrush)FindResource("AccentGreenDim")
+                        : Brushes.Transparent,
+                    Foreground = _shapeKind == kind
+                        ? (SolidColorBrush)FindResource("AccentGreen")
+                        : (SolidColorBrush)FindResource("TextPrimary"),
+                    BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
+                    BorderThickness = new Thickness(1)
+                };
+                btn.Click += (_, _) => { _shapeKind = kind; ShowShapeSettings(); };
+                panel.Children.Add(btn);
+            }
+            AddKindToggle("\uE91A", ShapeKind.Rectangle, "Rectangle");
+            AddKindToggle("\uEA3A", ShapeKind.Ellipse, "Ellipse");
+            AddKindToggle("\uE739", ShapeKind.Line, "Line");
+
+            panel.Children.Add(new Rectangle
+            {
+                Width = 1, Fill = (SolidColorBrush)FindResource("BorderDim"),
+                Margin = new Thickness(8, 2, 8, 2)
+            });
+
+            // Stroke color
+            panel.Children.Add(MakeLabel("Stroke:"));
+            foreach (var color in ShapeStrokeColors)
+            {
+                var c = color;
+                bool selected = c.R == _shapeStrokeColor.R && c.G == _shapeStrokeColor.G && c.B == _shapeStrokeColor.B;
+                var swatch = new Border
+                {
+                    Width = 18, Height = 18,
+                    Background = new SolidColorBrush(c),
+                    BorderBrush = selected
+                        ? (SolidColorBrush)FindResource("AccentGreen")
+                        : new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
+                    BorderThickness = new Thickness(selected ? 2 : 1),
+                    CornerRadius = new CornerRadius(3),
+                    Margin = new Thickness(1),
+                    Cursor = Cursors.Hand
+                };
+                swatch.MouseLeftButtonDown += (_, _) => { _shapeStrokeColor = c; ShowShapeSettings(); };
+                panel.Children.Add(swatch);
+            }
+
+            panel.Children.Add(new Rectangle
+            {
+                Width = 1, Fill = (SolidColorBrush)FindResource("BorderDim"),
+                Margin = new Thickness(8, 2, 8, 2)
+            });
+
+            // Fill toggle + color
+            panel.Children.Add(MakeLabel("Fill:"));
+            var fillToggle = new CheckBox
+            {
+                Content = "On",
+                IsChecked = _shapeHasFill,
+                Foreground = (SolidColorBrush)FindResource("TextPrimary"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            fillToggle.Checked += (_, _) => { _shapeHasFill = true; ShowShapeSettings(); };
+            fillToggle.Unchecked += (_, _) => { _shapeHasFill = false; ShowShapeSettings(); };
+            panel.Children.Add(fillToggle);
+
+            if (_shapeHasFill)
+            {
+                foreach (var color in ShapeStrokeColors)
+                {
+                    var c = color;
+                    bool selected = c.R == _shapeFillColor.R && c.G == _shapeFillColor.G && c.B == _shapeFillColor.B;
+                    var swatch = new Border
+                    {
+                        Width = 18, Height = 18,
+                        Background = new SolidColorBrush(c),
+                        BorderBrush = selected
+                            ? (SolidColorBrush)FindResource("AccentGreen")
+                            : new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
+                        BorderThickness = new Thickness(selected ? 2 : 1),
+                        CornerRadius = new CornerRadius(3),
+                        Margin = new Thickness(1),
+                        Cursor = Cursors.Hand
+                    };
+                    swatch.MouseLeftButtonDown += (_, _) => { _shapeFillColor = c; ShowShapeSettings(); };
+                    panel.Children.Add(swatch);
+                }
+            }
+
+            panel.Children.Add(new Rectangle
+            {
+                Width = 1, Fill = (SolidColorBrush)FindResource("BorderDim"),
+                Margin = new Thickness(8, 2, 8, 2)
+            });
+
+            // Stroke width
+            panel.Children.Add(MakeLabel("Width:"));
+            var widthSlider = new Slider
+            {
+                Minimum = 1, Maximum = 12,
+                Value = _shapeStrokeWidth,
+                Width = 90, VerticalAlignment = VerticalAlignment.Center,
+                TickFrequency = 1, IsSnapToTickEnabled = true
+            };
+            var widthLabel = new TextBlock
+            {
+                Text = $"{_shapeStrokeWidth:0}px",
+                Foreground = (SolidColorBrush)FindResource("TextPrimary"),
+                FontFamily = new FontFamily("Segoe UI"), FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0), MinWidth = 32
+            };
+            widthSlider.ValueChanged += (_, _) =>
+            {
+                _shapeStrokeWidth = widthSlider.Value;
+                widthLabel.Text = $"{_shapeStrokeWidth:0}px";
+            };
+            panel.Children.Add(widthSlider);
+            panel.Children.Add(widthLabel);
+
+            _shapeSettingsBar = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a)),
+                BorderBrush = (SolidColorBrush)FindResource("BorderDim"),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                CornerRadius = new CornerRadius(0, 0, 4, 4),
+                Padding = new Thickness(4),
+                Child = panel,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+
+            var previewArea = PagePreviewPanel.Parent as Grid;
+            if (previewArea is not null)
+            {
+                Panel.SetZIndex(_shapeSettingsBar, 100);
+                previewArea.Children.Add(_shapeSettingsBar);
+            }
+        }
+
+        private TextBlock MakeLabel(string text) => new TextBlock
+        {
+            Text = text,
+            Foreground = (SolidColorBrush)FindResource("TextSecondary"),
+            FontFamily = new FontFamily("Segoe UI"), FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0)
+        };
+
+        private void HideShapeSettings()
+        {
+            if (_shapeSettingsBar is not null)
+            {
+                (PagePreviewPanel.Parent as Grid)?.Children.Remove(_shapeSettingsBar);
+                _shapeSettingsBar = null;
             }
         }
 
@@ -2776,7 +3103,13 @@ namespace TDPdf
 
             AddAnnotation(annot);
             RenderAllAnnotations(pageIdx);
-            SetStatus("Signature placed - click again to place another, or switch tools");
+            // Auto-select so the user can immediately drag/resize/delete the new signature
+            // without having to switch to Select first (Reddit/KillerPDF feedback).
+            double sigW = annot.SourceWidth * annot.Scale;
+            double sigH = annot.SourceHeight * annot.Scale;
+            SetTool(EditTool.Select);
+            SelectAnnotation(annot, new Rect(annot.Position.X, annot.Position.Y, sigW, sigH));
+            SetStatus("Signature placed — drag the corner handle to resize, or Delete to remove");
         }
 
         private void PlaceImageFromDialog(Point pos, int pageIdx)
@@ -2831,9 +3164,66 @@ namespace TDPdf
         // Canvas interaction
         // ============================================================
 
+        private void Canvas_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            // Middle-mouse: modal pan in any tool. Start panning and swallow the event so
+            // other handlers (Canvas_MouseLeftButtonDown, AnnotationCanvas children) don't run.
+            if (_doc is null) return;
+            if (e.ChangedButton != MouseButton.Middle) return;
+            if (IsPointerOperationActive) return;
+
+            StartPan(e, MouseButton.Middle);
+            e.Handled = true;
+        }
+
+        private void Canvas_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (_isPanning && e.ChangedButton == _panButton)
+            {
+                EndPan();
+                e.Handled = true;
+            }
+        }
+
+        private void Canvas_LostMouseCapture(object sender, MouseEventArgs e)
+        {
+            if (_isPanning)
+                EndPan();
+            // Don't reset other operations here — WPF can fire this for many reasons,
+            // and the corresponding MouseUp handlers reset their own state.
+        }
+
+        private void StartPan(MouseButtonEventArgs e, MouseButton button)
+        {
+            _isPanning = true;
+            _panButton = button;
+            // Use ScrollViewer (viewer) coords so deltas don't scale with the page zoom transform.
+            _panStartViewerPoint = e.GetPosition(PagePreviewPanel);
+            _panStartHOffset = PagePreviewPanel.HorizontalOffset;
+            _panStartVOffset = PagePreviewPanel.VerticalOffset;
+            _cursorBeforePan ??= _annotationCanvas.Cursor;
+            _annotationCanvas.Cursor = Cursors.ScrollAll;
+            _annotationCanvas.CaptureMouse();
+        }
+
+        private void EndPan()
+        {
+            _isPanning = false;
+            _panButton = null;
+            if (_annotationCanvas.IsMouseCaptured)
+                _annotationCanvas.ReleaseMouseCapture();
+            if (_cursorBeforePan != null)
+            {
+                _annotationCanvas.Cursor = _cursorBeforePan;
+                _cursorBeforePan = null;
+            }
+        }
+
         private void Canvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (_doc is null) return;
+            // If a middle-mouse pan started before WPF routed the left-button event, swallow it.
+            if (_isPanning) { e.Handled = true; return; }
             // Don't intercept clicks on an active text editing box
             if (_activeTextBox is not null && e.OriginalSource is DependencyObject src &&
                 IsDescendantOf(src, _activeTextBox))
@@ -2899,6 +3289,21 @@ namespace TDPdf
                 }
             }
 
+            // Check if click is on the generic-annotation resize handle (shape / highlight / ink)
+            if (_annotResizeHandle is not null && _selectedAnnotation is not null
+                && _selectedAnnotation is not PlacedAnnotation)
+            {
+                double hx = Canvas.GetLeft(_annotResizeHandle);
+                double hy = Canvas.GetTop(_annotResizeHandle);
+                if (pos.X >= hx && pos.X <= hx + _annotResizeHandle.Width &&
+                    pos.Y >= hy && pos.Y <= hy + _annotResizeHandle.Height)
+                {
+                    BeginAnnotResize(_selectedAnnotation, pos);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             switch (_currentTool)
             {
                 case EditTool.Select:
@@ -2931,6 +3336,26 @@ namespace TDPdf
                                     e.Handled = true;
                                     hitPlaced = true;
                                     break;
+                                }
+                            }
+                            // Then try non-placed annotations (Shape, Highlight, Ink, Text) — select and move
+                            if (!hitPlaced)
+                            {
+                                for (int i = pageAnnotsList.Count - 1; i >= 0; i--)
+                                {
+                                    var a = pageAnnotsList[i];
+                                    if (a is PlacedAnnotation) continue;
+                                    if (a is ShapeAnnotation or HighlightAnnotation or InkAnnotation or TextAnnotation
+                                        && HitTestAnnotation(a, pos, out Rect aBounds))
+                                    {
+                                        ClearSelection();
+                                        RenderAllAnnotations(pageIdx);
+                                        SelectAnnotation(a, aBounds);
+                                        BeginAnnotMove(a, pos);
+                                        e.Handled = true;
+                                        hitPlaced = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -3051,14 +3476,214 @@ namespace TDPdf
                     PlaceImageFromDialog(pos, pageIdx);
                     e.Handled = true;
                     break;
+
+                case EditTool.Pan:
+                    StartPan(e, MouseButton.Left);
+                    e.Handled = true;
+                    break;
+
+                case EditTool.Erase:
+                {
+                    ClearSelection();
+                    if (_annotations.TryGetValue(pageIdx, out var erasePageList))
+                    {
+                        for (int i = erasePageList.Count - 1; i >= 0; i--)
+                        {
+                            if (HitTestAnnotation(erasePageList[i], pos, out _))
+                            {
+                                erasePageList.RemoveAt(i);
+                                RenderAllAnnotations(pageIdx);
+                                MarkDirty();
+                                SetStatus("Erased annotation");
+                                break;
+                            }
+                        }
+                    }
+                    e.Handled = true;
+                    break;
+                }
+
+                case EditTool.Shape:
+                {
+                    ClearSelection();
+                    _isDrawing = true;
+                    _drawStart = pos;
+                    Shape preview = _shapeKind switch
+                    {
+                        ShapeKind.Rectangle => new Rectangle
+                        {
+                            Stroke = FrozenSolidColorBrush(_shapeStrokeColor),
+                            StrokeThickness = _shapeStrokeWidth,
+                            Fill = _shapeHasFill
+                                ? FrozenSolidColorBrush(_shapeFillColor)
+                                : (Brush)Brushes.Transparent,
+                            Width = 0, Height = 0,
+                            IsHitTestVisible = false
+                        },
+                        ShapeKind.Ellipse => new Ellipse
+                        {
+                            Stroke = FrozenSolidColorBrush(_shapeStrokeColor),
+                            StrokeThickness = _shapeStrokeWidth,
+                            Fill = _shapeHasFill
+                                ? FrozenSolidColorBrush(_shapeFillColor)
+                                : (Brush)Brushes.Transparent,
+                            Width = 0, Height = 0,
+                            IsHitTestVisible = false
+                        },
+                        ShapeKind.Line => new Line
+                        {
+                            Stroke = FrozenSolidColorBrush(_shapeStrokeColor),
+                            StrokeThickness = _shapeStrokeWidth,
+                            StrokeStartLineCap = PenLineCap.Round,
+                            StrokeEndLineCap = PenLineCap.Round,
+                            X1 = pos.X, Y1 = pos.Y, X2 = pos.X, Y2 = pos.Y,
+                            IsHitTestVisible = false
+                        },
+                        _ => throw new InvalidOperationException()
+                    };
+                    if (_shapeKind != ShapeKind.Line)
+                    {
+                        Canvas.SetLeft(preview, pos.X);
+                        Canvas.SetTop(preview, pos.Y);
+                    }
+                    _annotationCanvas.Children.Add(preview);
+                    _activePreview = preview;
+                    _annotationCanvas.CaptureMouse();
+                    e.Handled = true;
+                    break;
+                }
+            }
+        }
+
+        private void BeginAnnotMove(PageAnnotation annot, Point pos)
+        {
+            _isMovingAnnot = true;
+            _movingAnnot = annot;
+            _moveStartCanvas = pos;
+            _moveOriginalGeom = CaptureGeometry(annot);
+            _annotationCanvas.CaptureMouse();
+        }
+
+        private void BeginAnnotResize(PageAnnotation annot, Point pos)
+        {
+            _isResizingAnnot = true;
+            _resizingAnnot = annot;
+            _resizeStartCanvas = pos;
+            _resizeOriginalGeom = CaptureGeometry(annot);
+            _annotationCanvas.CaptureMouse();
+        }
+
+        /// <summary>
+        /// Snapshot the geometric state of an annotation so a move or resize can be applied
+        /// relative to the starting state without compounding rounding errors.
+        /// </summary>
+        private static object CaptureGeometry(PageAnnotation annot) => annot switch
+        {
+            ShapeAnnotation s => (Start: s.Start, End: s.End, StrokeWidth: s.StrokeWidth),
+            HighlightAnnotation h => h.Bounds,
+            InkAnnotation i => new List<Point>(i.Points),
+            TextAnnotation t => (Position: t.Position, FontSize: t.FontSize),
+            _ => 0
+        };
+
+        private void ApplyMoveTo(PageAnnotation annot, Point cur, Point start, object original)
+        {
+            double dx = cur.X - start.X;
+            double dy = cur.Y - start.Y;
+            switch (annot)
+            {
+                case ShapeAnnotation s when original is ValueTuple<Point, Point, double> o:
+                    s.Start = new Point(o.Item1.X + dx, o.Item1.Y + dy);
+                    s.End   = new Point(o.Item2.X + dx, o.Item2.Y + dy);
+                    break;
+                case HighlightAnnotation h when original is Rect r:
+                    h.Bounds = new Rect(r.X + dx, r.Y + dy, r.Width, r.Height);
+                    break;
+                case InkAnnotation ink when original is List<Point> pts:
+                    ink.Points.Clear();
+                    foreach (var p in pts) ink.Points.Add(new Point(p.X + dx, p.Y + dy));
+                    break;
+                case TextAnnotation t when original is ValueTuple<Point, double> tp:
+                    t.Position = new Point(tp.Item1.X + dx, tp.Item1.Y + dy);
+                    break;
+            }
+        }
+
+        private void ApplyResizeTo(PageAnnotation annot, Point cur, Point start, object original)
+        {
+            switch (annot)
+            {
+                case ShapeAnnotation s when original is ValueTuple<Point, Point, double> o:
+                {
+                    // Anchor to Start; drag End.
+                    s.Start = o.Item1;
+                    s.End = new Point(o.Item2.X + (cur.X - start.X), o.Item2.Y + (cur.Y - start.Y));
+                    break;
+                }
+                case HighlightAnnotation h when original is Rect r:
+                {
+                    double newW = Math.Max(4, r.Width + (cur.X - start.X));
+                    double newH = Math.Max(4, r.Height + (cur.Y - start.Y));
+                    h.Bounds = new Rect(r.X, r.Y, newW, newH);
+                    break;
+                }
+                case InkAnnotation ink when original is List<Point> pts:
+                {
+                    if (pts.Count == 0) break;
+                    double minX = pts.Min(p => p.X), minY = pts.Min(p => p.Y);
+                    double maxX = pts.Max(p => p.X), maxY = pts.Max(p => p.Y);
+                    double origW = Math.Max(1, maxX - minX), origH = Math.Max(1, maxY - minY);
+                    double newW = Math.Max(4, origW + (cur.X - start.X));
+                    double newH = Math.Max(4, origH + (cur.Y - start.Y));
+                    double sx = newW / origW, sy = newH / origH;
+                    ink.Points.Clear();
+                    foreach (var p in pts)
+                        ink.Points.Add(new Point(minX + (p.X - minX) * sx, minY + (p.Y - minY) * sy));
+                    double uniform = (sx + sy) * 0.5;
+                    ink.StrokeWidth = Math.Max(0.5, ink.StrokeWidth * uniform);
+                    break;
+                }
             }
         }
 
         private void Canvas_MouseMove(object sender, MouseEventArgs e)
         {
+            // Pan first — uses viewer coords so deltas don't scale with the page transform.
+            if (_isPanning)
+            {
+                var viewerPos = e.GetPosition(PagePreviewPanel);
+                double dx = viewerPos.X - _panStartViewerPoint.X;
+                double dy = viewerPos.Y - _panStartViewerPoint.Y;
+                PagePreviewPanel.ScrollToHorizontalOffset(_panStartHOffset - dx);
+                PagePreviewPanel.ScrollToVerticalOffset(_panStartVOffset - dy);
+                return;
+            }
+
             var pos = e.GetPosition(_annotationCanvas);
             pos.X = Math.Clamp(pos.X, 0, _annotationCanvas.ActualWidth);
             pos.Y = Math.Clamp(pos.Y, 0, _annotationCanvas.ActualHeight);
+
+            // Generic annotation move
+            if (_isMovingAnnot && _movingAnnot is not null && _moveOriginalGeom is not null)
+            {
+                ApplyMoveTo(_movingAnnot, pos, _moveStartCanvas, _moveOriginalGeom);
+                RenderAllAnnotations(_movingAnnot.PageIndex);
+                if (HitTestAnnotation(_movingAnnot, GetAnyPointInside(_movingAnnot), out Rect mb))
+                    RefreshSelectionVisuals(mb);
+                MarkDirty();
+                return;
+            }
+
+            // Generic annotation resize
+            if (_isResizingAnnot && _resizingAnnot is not null && _resizeOriginalGeom is not null)
+            {
+                ApplyResizeTo(_resizingAnnot, pos, _resizeStartCanvas, _resizeOriginalGeom);
+                RenderAllAnnotations(_resizingAnnot.PageIndex);
+                if (HitTestAnnotation(_resizingAnnot, GetAnyPointInside(_resizingAnnot), out Rect rb))
+                    RefreshSelectionVisuals(rb);
+                MarkDirty();
+                return;
+            }
 
             // Signature resize drag
             if (_isResizingSig && _resizeSigAnnot is not null)
@@ -3151,6 +3776,24 @@ namespace TDPdf
                     poly.Points.Add(pos);
                     break;
 
+                case EditTool.Shape when _activePreview is Line lnPrev:
+                    lnPrev.X2 = pos.X;
+                    lnPrev.Y2 = pos.Y;
+                    break;
+
+                case EditTool.Shape when _activePreview is FrameworkElement shapePrev:
+                {
+                    double sx = Math.Min(pos.X, _drawStart.X);
+                    double sy = Math.Min(pos.Y, _drawStart.Y);
+                    double sw = Math.Abs(pos.X - _drawStart.X);
+                    double sh = Math.Abs(pos.Y - _drawStart.Y);
+                    Canvas.SetLeft(shapePrev, sx);
+                    Canvas.SetTop(shapePrev, sy);
+                    shapePrev.Width = sw;
+                    shapePrev.Height = sh;
+                    break;
+                }
+
                 case EditTool.Crop when _activePreview is Rectangle crect:
                     Canvas.SetLeft(crect, Math.Min(pos.X, _drawStart.X));
                     Canvas.SetTop(crect, Math.Min(pos.Y, _drawStart.Y));
@@ -3162,12 +3805,54 @@ namespace TDPdf
 
         private void Canvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
+            // Pan was started with left-click in Pan tool: release here.
+            if (_isPanning && _panButton == MouseButton.Left)
+            {
+                EndPan();
+                e.Handled = true;
+                return;
+            }
+
             // Don't process release events that originate inside the crop confirm bar.
             if (_cropConfirmBar is not null && e.OriginalSource is DependencyObject cropSrc &&
                 IsDescendantOf(cropSrc, _cropConfirmBar))
                 return;
 
             int pageIdx = PageList.SelectedIndex;
+
+            // Finish generic annotation move
+            if (_isMovingAnnot)
+            {
+                var ma = _movingAnnot;
+                _isMovingAnnot = false;
+                _movingAnnot = null;
+                _moveOriginalGeom = null;
+                if (_annotationCanvas.IsMouseCaptured) _annotationCanvas.ReleaseMouseCapture();
+                if (ma is not null)
+                {
+                    RenderAllAnnotations(ma.PageIndex);
+                    if (HitTestAnnotation(ma, GetAnyPointInside(ma), out Rect mb))
+                        SelectAnnotation(ma, mb);
+                }
+                return;
+            }
+
+            // Finish generic annotation resize
+            if (_isResizingAnnot)
+            {
+                var ra = _resizingAnnot;
+                _isResizingAnnot = false;
+                _resizingAnnot = null;
+                _resizeOriginalGeom = null;
+                if (_annotationCanvas.IsMouseCaptured) _annotationCanvas.ReleaseMouseCapture();
+                if (ra is not null)
+                {
+                    RenderAllAnnotations(ra.PageIndex);
+                    if (HitTestAnnotation(ra, GetAnyPointInside(ra), out Rect rb))
+                        SelectAnnotation(ra, rb);
+                }
+                return;
+            }
 
             // Finish annotation drag-to-move
             if (_isDraggingAnnot)
@@ -3307,6 +3992,58 @@ namespace TDPdf
                     }
                     _activeInk = null;
                     break;
+
+                case EditTool.Shape when _activePreview is Line lnCommit:
+                {
+                    double dx = lnCommit.X2 - lnCommit.X1;
+                    double dy = lnCommit.Y2 - lnCommit.Y1;
+                    if (Math.Sqrt(dx * dx + dy * dy) >= 4)
+                    {
+                        var sa = new ShapeAnnotation
+                        {
+                            PageIndex = pageIdx,
+                            Kind = ShapeKind.Line,
+                            Start = new Point(lnCommit.X1, lnCommit.Y1),
+                            End = new Point(lnCommit.X2, lnCommit.Y2),
+                            StrokeWidth = _shapeStrokeWidth,
+                            HasFill = false
+                        };
+                        sa.SetStrokeColor(_shapeStrokeColor);
+                        sa.SetFillColor(_shapeFillColor);
+                        AddAnnotation(sa);
+                    }
+                    else
+                    {
+                        _annotationCanvas.Children.Remove(lnCommit);
+                    }
+                    break;
+                }
+
+                case EditTool.Shape when _activePreview is FrameworkElement shapeCommit:
+                {
+                    double sx = Canvas.GetLeft(shapeCommit);
+                    double sy = Canvas.GetTop(shapeCommit);
+                    if (shapeCommit.Width >= 4 && shapeCommit.Height >= 4)
+                    {
+                        var sa = new ShapeAnnotation
+                        {
+                            PageIndex = pageIdx,
+                            Kind = shapeCommit is Ellipse ? ShapeKind.Ellipse : ShapeKind.Rectangle,
+                            Start = new Point(sx, sy),
+                            End = new Point(sx + shapeCommit.Width, sy + shapeCommit.Height),
+                            StrokeWidth = _shapeStrokeWidth,
+                            HasFill = _shapeHasFill
+                        };
+                        sa.SetStrokeColor(_shapeStrokeColor);
+                        sa.SetFillColor(_shapeFillColor);
+                        AddAnnotation(sa);
+                    }
+                    else
+                    {
+                        _annotationCanvas.Children.Remove(shapeCommit);
+                    }
+                    break;
+                }
 
                 case EditTool.Crop when _activePreview is Rectangle cr:
                     if (cr.Width > 10 && cr.Height > 10)
@@ -3502,6 +4239,26 @@ namespace TDPdf
                     bounds = new Rect(ia.Position.X, ia.Position.Y, iaW, iaH);
                     return bounds.Contains(pos);
 
+                case ShapeAnnotation shp:
+                    bounds = shp.Bounds;
+                    if (shp.Kind == ShapeKind.Line)
+                    {
+                        // Distance from point to line segment, threshold = max(6, strokeWidth+4) px.
+                        double d = DistancePointToSegment(pos, shp.Start, shp.End);
+                        return d <= Math.Max(6.0, shp.StrokeWidth + 4);
+                    }
+                    if (shp.Kind == ShapeKind.Ellipse)
+                    {
+                        // Hit-test ellipse mathematically (rectangle bounds would be too generous).
+                        double rx = bounds.Width / 2.0;
+                        double ry = bounds.Height / 2.0;
+                        if (rx <= 0 || ry <= 0) return false;
+                        double nx = (pos.X - (bounds.X + rx)) / rx;
+                        double ny = (pos.Y - (bounds.Y + ry)) / ry;
+                        return nx * nx + ny * ny <= 1.0;
+                    }
+                    return bounds.Contains(pos);
+
                 default:
                     bounds = Rect.Empty;
                     return false;
@@ -3558,9 +4315,38 @@ namespace TDPdf
                 string label = annot is SignatureAnnotation ? "Signature" : "Image";
                 SetStatus($"{label} selected — drag corner handle to resize, Delete to remove");
             }
+            else if (annot is ShapeAnnotation or HighlightAnnotation or InkAnnotation)
+            {
+                const double hSize = 10;
+                _annotResizeHandle = new Rectangle
+                {
+                    Width = hSize, Height = hSize,
+                    Fill = (SolidColorBrush)FindResource("AccentGreen"),
+                    Stroke = Brushes.White, StrokeThickness = 1,
+                    Cursor = Cursors.SizeNWSE,
+                    IsHitTestVisible = true
+                };
+                Canvas.SetLeft(_annotResizeHandle, bounds.X + bounds.Width - 4 - hSize / 2);
+                Canvas.SetTop(_annotResizeHandle, bounds.Y + bounds.Height - 4 - hSize / 2);
+                _annotationCanvas.Children.Add(_annotResizeHandle);
+                string kind = annot switch
+                {
+                    ShapeAnnotation s => s.Kind switch
+                    {
+                        ShapeKind.Rectangle => "rectangle",
+                        ShapeKind.Ellipse => "ellipse",
+                        ShapeKind.Line => "line",
+                        _ => "shape"
+                    },
+                    HighlightAnnotation => "highlight",
+                    InkAnnotation => "drawing",
+                    _ => "annotation"
+                };
+                SetStatus($"Selected {kind} — drag to move, corner handle to resize, Delete to remove");
+            }
             else
             {
-                SetStatus($"Selected {annot.GetType().Name.Replace("Annotation", "").ToLower()} annotation - press Delete to remove");
+                SetStatus($"Selected {annot.GetType().Name.Replace("Annotation", "").ToLower()} annotation - drag to move, press Delete to remove");
             }
         }
 
@@ -3573,6 +4359,46 @@ namespace TDPdf
                 current = VisualTreeHelper.GetParent(current);
             }
             return false;
+        }
+
+        /// <summary>
+        /// Return a representative point on/inside an annotation that the corresponding
+        /// HitTest case will accept as a hit — used after move/resize to refresh the
+        /// stored bounds without re-hit-testing the original cursor position.
+        /// </summary>
+        private static Point GetAnyPointInside(PageAnnotation annot) => annot switch
+        {
+            ShapeAnnotation s => s.Kind == ShapeKind.Line
+                ? new Point((s.Start.X + s.End.X) * 0.5, (s.Start.Y + s.End.Y) * 0.5)
+                : new Point(s.Bounds.X + s.Bounds.Width * 0.5, s.Bounds.Y + s.Bounds.Height * 0.5),
+            HighlightAnnotation h => new Point(h.Bounds.X + 1, h.Bounds.Y + 1),
+            InkAnnotation i when i.Points.Count > 0 => i.Points[0],
+            TextAnnotation t => new Point(t.Position.X + 1, t.Position.Y + 1),
+            SignatureAnnotation sg => new Point(sg.Position.X + 1, sg.Position.Y + 1),
+            ImageAnnotation ig => new Point(ig.Position.X + 1, ig.Position.Y + 1),
+            _ => new Point(0, 0)
+        };
+
+        /// <summary>
+        /// After an in-progress move/resize, re-render replaced the canvas children.
+        /// Re-add the selection border and handle on top with the new bounds.
+        /// </summary>
+        private void RefreshSelectionVisuals(Rect bounds)
+        {
+            if (_selectionBorder is not null)
+            {
+                _selectionBorder.Width = bounds.Width + 8;
+                _selectionBorder.Height = bounds.Height + 8;
+                Canvas.SetLeft(_selectionBorder, bounds.X - 4);
+                Canvas.SetTop(_selectionBorder, bounds.Y - 4);
+                _annotationCanvas.Children.Add(_selectionBorder);
+            }
+            if (_annotResizeHandle is not null)
+            {
+                Canvas.SetLeft(_annotResizeHandle, bounds.X + bounds.Width - 4 - _annotResizeHandle.Width / 2);
+                Canvas.SetTop(_annotResizeHandle, bounds.Y + bounds.Height - 4 - _annotResizeHandle.Height / 2);
+                _annotationCanvas.Children.Add(_annotResizeHandle);
+            }
         }
 
         private void ClearSelection()
@@ -3592,10 +4418,21 @@ namespace TDPdf
                 _annotationCanvas.Children.Remove(_resizeHandle);
                 _resizeHandle = null;
             }
+            if (_annotResizeHandle is not null)
+            {
+                _annotationCanvas.Children.Remove(_annotResizeHandle);
+                _annotResizeHandle = null;
+            }
             _isResizingSig = false;
             _resizeSigAnnot = null;
             _isDraggingAnnot = false;
             _dragAnnot = null;
+            _isMovingAnnot = false;
+            _movingAnnot = null;
+            _moveOriginalGeom = null;
+            _isResizingAnnot = false;
+            _resizingAnnot = null;
+            _resizeOriginalGeom = null;
             _selectedAnnotation = null;
         }
 
@@ -4629,6 +5466,9 @@ namespace TDPdf
                         Canvas.SetTop(rect, ha.Bounds.Y);
                         _annotationCanvas.Children.Add(rect);
                         break;
+                    case ShapeAnnotation shp:
+                        RenderShapeAnnotation(shp);
+                        break;
                     case InkAnnotation ia:
                         if (ia.Points.Count < 2) continue;
                         var poly = new Polyline
@@ -4777,6 +5617,76 @@ namespace TDPdf
                         break;
                 }
             }
+        }
+
+        private void RenderShapeAnnotation(ShapeAnnotation shp)
+        {
+            var stroke = FrozenSolidColorBrush(shp.GetStrokeColor());
+            SolidColorBrush? fill = shp.HasFill ? FrozenSolidColorBrush(shp.GetFillColor()) : null;
+            switch (shp.Kind)
+            {
+                case ShapeKind.Rectangle:
+                {
+                    var b = shp.Bounds;
+                    var r = new Rectangle
+                    {
+                        Width = Math.Max(1, b.Width),
+                        Height = Math.Max(1, b.Height),
+                        Stroke = stroke,
+                        StrokeThickness = shp.StrokeWidth,
+                        Fill = fill ?? Brushes.Transparent,
+                        IsHitTestVisible = false
+                    };
+                    Canvas.SetLeft(r, b.X);
+                    Canvas.SetTop(r, b.Y);
+                    _annotationCanvas.Children.Add(r);
+                    break;
+                }
+                case ShapeKind.Ellipse:
+                {
+                    var b = shp.Bounds;
+                    var e = new Ellipse
+                    {
+                        Width = Math.Max(1, b.Width),
+                        Height = Math.Max(1, b.Height),
+                        Stroke = stroke,
+                        StrokeThickness = shp.StrokeWidth,
+                        Fill = fill ?? Brushes.Transparent,
+                        IsHitTestVisible = false
+                    };
+                    Canvas.SetLeft(e, b.X);
+                    Canvas.SetTop(e, b.Y);
+                    _annotationCanvas.Children.Add(e);
+                    break;
+                }
+                case ShapeKind.Line:
+                {
+                    var ln = new Line
+                    {
+                        X1 = shp.Start.X, Y1 = shp.Start.Y,
+                        X2 = shp.End.X,   Y2 = shp.End.Y,
+                        Stroke = stroke,
+                        StrokeThickness = shp.StrokeWidth,
+                        StrokeStartLineCap = PenLineCap.Round,
+                        StrokeEndLineCap = PenLineCap.Round,
+                        IsHitTestVisible = false
+                    };
+                    _annotationCanvas.Children.Add(ln);
+                    break;
+                }
+            }
+        }
+
+        private static double DistancePointToSegment(Point p, Point a, Point b)
+        {
+            double dx = b.X - a.X, dy = b.Y - a.Y;
+            double len2 = dx * dx + dy * dy;
+            if (len2 < 1e-6)
+                return Math.Sqrt((p.X - a.X) * (p.X - a.X) + (p.Y - a.Y) * (p.Y - a.Y));
+            double t = ((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len2;
+            t = Math.Clamp(t, 0.0, 1.0);
+            double cx = a.X + t * dx, cy = a.Y + t * dy;
+            return Math.Sqrt((p.X - cx) * (p.X - cx) + (p.Y - cy) * (p.Y - cy));
         }
 
         private static BitmapSource? LoadImageEditBitmap(ImageEditAnnotation edit)
@@ -5245,9 +6155,21 @@ namespace TDPdf
             if (_doc is null) { TdpDialog.Show(this, "Open a PDF first."); return; }
             var doc = _doc;
             int insertAfter = PageList.SelectedIndex >= 0 ? PageList.SelectedIndex : doc.PageCount - 1;
+
+            double currentW = insertAfter >= 0 && insertAfter < doc.PageCount
+                ? doc.Pages[insertAfter].Width.Point
+                : 612;
+            double currentH = insertAfter >= 0 && insertAfter < doc.PageCount
+                ? doc.Pages[insertAfter].Height.Point
+                : 792;
+
+            var picked = ShowInsertPageDialog(currentW, currentH);
+            if (picked is null) return;
+            var (wPt, hPt) = picked.Value;
+
             try
             {
-                var blank = new PdfPage { Width = XUnit.FromPoint(595), Height = XUnit.FromPoint(842) };
+                var blank = new PdfPage { Width = XUnit.FromPoint(wPt), Height = XUnit.FromPoint(hPt) };
                 doc.Pages.Insert(insertAfter + 1, blank);
                 SaveTempAndReload();
                 PageList.SelectedIndex = insertAfter + 1;
@@ -5257,6 +6179,140 @@ namespace TDPdf
             {
                 TdpDialog.Show(this, $"Insert failed:\n{ex.Message}", "TDPdf", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private (double WidthPt, double HeightPt)? ShowInsertPageDialog(double currentWPt, double currentHPt)
+        {
+            // (Display name, width pt, height pt). Sizes are in PostScript points (72/in).
+            var sizes = new (string Name, double W, double H)[]
+            {
+                ($"Same as current page ({currentWPt:0}×{currentHPt:0} pt)", currentWPt, currentHPt),
+                ("Letter (8.5 × 11 in)",   612, 792),
+                ("Legal (8.5 × 14 in)",    612, 1008),
+                ("Tabloid (11 × 17 in)",   792, 1224),
+                ("A3 (297 × 420 mm)",      842, 1191),
+                ("A4 (210 × 297 mm)",      595, 842),
+                ("A5 (148 × 210 mm)",      420, 595)
+            };
+
+            var bgDark   = (SolidColorBrush)FindResource("BgDark");
+            var bgPanel  = (SolidColorBrush)FindResource("BgPanel");
+            var borderDim = (SolidColorBrush)FindResource("BorderDim");
+            var textPrimary = (SolidColorBrush)FindResource("TextPrimary");
+            var textSecondary = (SolidColorBrush)FindResource("TextSecondary");
+            var accent = (SolidColorBrush)FindResource("AccentGreen");
+
+            var win = new Window
+            {
+                Title = "Insert Blank Page",
+                Width = 380, SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                Background = bgDark,
+                Foreground = textPrimary,
+                ShowInTaskbar = false,
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 12
+            };
+
+            var root = new StackPanel { Margin = new Thickness(16) };
+
+            root.Children.Add(new TextBlock
+            {
+                Text = "Page size",
+                Foreground = textSecondary,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+
+            var sizeBox = new ComboBox
+            {
+                Style = (Style)FindResource("DarkComboBox"),
+                Height = 28
+            };
+            foreach (var s in sizes) sizeBox.Items.Add(s.Name);
+            sizeBox.SelectedIndex = 0;
+            root.Children.Add(sizeBox);
+
+            root.Children.Add(new TextBlock
+            {
+                Text = "Orientation",
+                Foreground = textSecondary,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 14, 0, 6)
+            });
+
+            var orient = new StackPanel { Orientation = Orientation.Horizontal };
+            var rbPortrait = new RadioButton
+            {
+                Content = "Portrait", IsChecked = currentWPt <= currentHPt,
+                Foreground = textPrimary, Margin = new Thickness(0, 0, 16, 0),
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            var rbLandscape = new RadioButton
+            {
+                Content = "Landscape", IsChecked = currentWPt > currentHPt,
+                Foreground = textPrimary,
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            orient.Children.Add(rbPortrait);
+            orient.Children.Add(rbLandscape);
+            root.Children.Add(orient);
+
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 18, 0, 0)
+            };
+            var cancelBtn = new Button
+            {
+                Content = "Cancel",
+                Width = 96, Height = 30,
+                Margin = new Thickness(0, 0, 8, 0),
+                Background = bgPanel,
+                Foreground = textPrimary,
+                BorderBrush = borderDim,
+                Cursor = Cursors.Hand,
+                IsCancel = true
+            };
+            var okBtn = new Button
+            {
+                Content = "Insert",
+                Width = 96, Height = 30,
+                Background = accent,
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.SemiBold,
+                BorderBrush = accent,
+                Cursor = Cursors.Hand,
+                IsDefault = true
+            };
+            buttons.Children.Add(cancelBtn);
+            buttons.Children.Add(okBtn);
+            root.Children.Add(buttons);
+
+            win.Content = new Border
+            {
+                Background = bgPanel,
+                BorderBrush = borderDim,
+                BorderThickness = new Thickness(1),
+                Child = root
+            };
+
+            bool ok = false;
+            okBtn.Click += (_, _) => { ok = true; win.DialogResult = true; };
+            cancelBtn.Click += (_, _) => { ok = false; win.DialogResult = false; };
+
+            win.ShowDialog();
+            if (!ok) return null;
+
+            var selected = sizes[sizeBox.SelectedIndex];
+            double w = selected.W;
+            double h = selected.H;
+            if (rbLandscape.IsChecked == true && h > w) (w, h) = (h, w);
+            if (rbPortrait.IsChecked == true && w > h) (w, h) = (h, w);
+            return (w, h);
         }
 
         private void MoveUp_Click(object sender, RoutedEventArgs e)
@@ -5490,6 +6546,49 @@ namespace TDPdf
                                 ha.Bounds.Width * sx, ha.Bounds.Height * sy);
                             break;
 
+                        case ShapeAnnotation shp:
+                        {
+                            var stk = shp.GetStrokeColor();
+                            var shpPen = new XPen(XColor.FromArgb(stk.A, stk.R, stk.G, stk.B), shp.StrokeWidth * sx)
+                            {
+                                LineJoin = XLineJoin.Round,
+                                LineCap = XLineCap.Round
+                            };
+                            XSolidBrush? shpFill = null;
+                            if (shp.HasFill)
+                            {
+                                var fc = shp.GetFillColor();
+                                shpFill = new XSolidBrush(XColor.FromArgb(fc.A, fc.R, fc.G, fc.B));
+                            }
+                            switch (shp.Kind)
+                            {
+                                case ShapeKind.Rectangle:
+                                {
+                                    var b = shp.Bounds;
+                                    double rx = b.X * sx, ry = b.Y * sy;
+                                    double rw = b.Width * sx, rh = b.Height * sy;
+                                    if (shpFill is not null) gfx.DrawRectangle(shpFill, rx, ry, rw, rh);
+                                    gfx.DrawRectangle(shpPen, rx, ry, rw, rh);
+                                    break;
+                                }
+                                case ShapeKind.Ellipse:
+                                {
+                                    var b = shp.Bounds;
+                                    double rx = b.X * sx, ry = b.Y * sy;
+                                    double rw = b.Width * sx, rh = b.Height * sy;
+                                    if (shpFill is not null) gfx.DrawEllipse(shpFill, rx, ry, rw, rh);
+                                    gfx.DrawEllipse(shpPen, rx, ry, rw, rh);
+                                    break;
+                                }
+                                case ShapeKind.Line:
+                                    gfx.DrawLine(shpPen,
+                                        shp.Start.X * sx, shp.Start.Y * sy,
+                                        shp.End.X * sx,   shp.End.Y * sy);
+                                    break;
+                            }
+                            break;
+                        }
+
                         case InkAnnotation ia:
                             if (ia.Points.Count < 2) break;
                             var ic = ia.GetColor();
@@ -5648,8 +6747,21 @@ namespace TDPdf
             if (Keyboard.Modifiers == ModifierKeys.Control)
             {
                 e.Handled = true;
+                _zoomFitMode = ZoomFitMode.None;
                 if (e.Delta > 0) Zoom.ZoomIn();
                 else Zoom.ZoomOut();
+                return;
+            }
+
+            // Shift+wheel scrolls horizontally (industry-standard).
+            if (Keyboard.Modifiers == ModifierKeys.Shift)
+            {
+                if (PagePreviewPanel.ScrollableWidth > 0)
+                {
+                    double newOffset = PagePreviewPanel.HorizontalOffset - e.Delta / 3.0;
+                    PagePreviewPanel.ScrollToHorizontalOffset(newOffset);
+                }
+                e.Handled = true;
                 return;
             }
 
@@ -5688,11 +6800,11 @@ namespace TDPdf
             }
         }
 
-        private void ZoomIn_Click(object sender, RoutedEventArgs e) => Zoom.ZoomIn();
+        private void ZoomIn_Click(object sender, RoutedEventArgs e) { _zoomFitMode = ZoomFitMode.None; Zoom.ZoomIn(); }
 
-        private void ZoomOut_Click(object sender, RoutedEventArgs e) => Zoom.ZoomOut();
+        private void ZoomOut_Click(object sender, RoutedEventArgs e) { _zoomFitMode = ZoomFitMode.None; Zoom.ZoomOut(); }
 
-        private void ResetZoom_Click(object sender, RoutedEventArgs e) => Zoom.Reset();
+        private void ResetZoom_Click(object sender, RoutedEventArgs e) { _zoomFitMode = ZoomFitMode.None; Zoom.Reset(); }
 
         private void ApplyZoom()
         {
@@ -5734,6 +6846,8 @@ namespace TDPdf
             if (_zoomBox?.SelectedItem is not ZoomLevelOption option) return;
             if (option.IsFitWidth) { FitToWidth(); return; }
             if (option.IsFitPage) { FitToPage(); return; }
+            // User picked an explicit zoom level — stop tracking the window size.
+            _zoomFitMode = ZoomFitMode.None;
             if (option.ZoomLevel is double zoom) Zoom.SetZoomLevel(zoom);
         }
 
@@ -5742,7 +6856,10 @@ namespace TDPdf
             if (PageImage.Source is null || PageImage.ActualWidth <= 0) return;
             double viewW = PagePreviewPanel.ActualWidth - 40;
             if (viewW <= 0) return;
-            Zoom.SetZoomLevel(viewW / PageImage.ActualWidth);
+            _zoomFitMode = ZoomFitMode.Width;
+            _applyingFitZoom = true;
+            try { Zoom.SetZoomLevel(viewW / PageImage.ActualWidth); }
+            finally { _applyingFitZoom = false; }
         }
 
         private void FitToPage()
@@ -5751,7 +6868,25 @@ namespace TDPdf
             double viewW = PagePreviewPanel.ActualWidth - 40;
             double viewH = PagePreviewPanel.ActualHeight - 40;
             if (viewW <= 0 || viewH <= 0) return;
-            Zoom.SetZoomLevel(Math.Min(viewW / PageImage.ActualWidth, viewH / PageImage.ActualHeight));
+            _zoomFitMode = ZoomFitMode.Page;
+            _applyingFitZoom = true;
+            try { Zoom.SetZoomLevel(Math.Min(viewW / PageImage.ActualWidth, viewH / PageImage.ActualHeight)); }
+            finally { _applyingFitZoom = false; }
+        }
+
+        private void PagePreviewPanel_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_zoomFitMode == ZoomFitMode.None) return;
+            // Debounce: coalesce a burst of size-changed events into one re-fit at Loaded
+            // priority so we don't fight the WPF layout pass.
+            if (_fitResizePending) return;
+            _fitResizePending = true;
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+            {
+                _fitResizePending = false;
+                if (_zoomFitMode == ZoomFitMode.Width) FitToWidth();
+                else if (_zoomFitMode == ZoomFitMode.Page) FitToPage();
+            });
         }
 
         private void PageContentGrid_ManipulationDelta(object sender, ManipulationDeltaEventArgs e)

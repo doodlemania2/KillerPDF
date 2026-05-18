@@ -3,7 +3,11 @@ using System.Windows.Media;
 
 namespace TDPdf
 {
-    public enum EditTool { Select, Text, Highlight, Draw, Signature, Image, EditText, EditImage, Crop }
+    public enum EditTool { Select, Text, Highlight, Draw, Signature, Image, EditText, EditImage, Crop, Pan, Erase, Shape }
+
+    public enum ShapeKind { Rectangle, Ellipse, Line }
+
+    public enum ZoomFitMode { None, Width, Page }
 
     public abstract class PageAnnotation
     {
@@ -102,6 +106,49 @@ namespace TDPdf
         public List<List<Point>> Strokes { get; set; } = new();
         /// <summary>Base-64 encoded PNG. Non-null = image sig; null = drawn strokes.</summary>
         public string? ImageData { get; set; }
+    }
+
+    /// <summary>
+    /// A geometric shape annotation: rectangle, ellipse, or line.
+    /// Stores Start/End endpoints so a Line preserves direction (NW→SE vs NE→SW).
+    /// Bounds is the normalized rectangle spanning Start and End; used for hit-testing
+    /// and rendering rectangles/ellipses.
+    /// </summary>
+    public class ShapeAnnotation : PageAnnotation
+    {
+        public ShapeKind Kind { get; set; } = ShapeKind.Rectangle;
+        public Point Start { get; set; }
+        public Point End { get; set; }
+
+        public byte StrokeR { get; set; } = 255;
+        public byte StrokeG { get; set; } = 0;
+        public byte StrokeB { get; set; } = 0;
+        public byte StrokeA { get; set; } = 255;
+
+        public byte FillR { get; set; } = 255;
+        public byte FillG { get; set; } = 255;
+        public byte FillB { get; set; } = 0;
+        public byte FillA { get; set; } = 80;
+
+        public bool HasFill { get; set; }
+        public double StrokeWidth { get; set; } = 2;
+
+        public Color GetStrokeColor() => Color.FromArgb(StrokeA, StrokeR, StrokeG, StrokeB);
+        public void SetStrokeColor(Color c) { StrokeR = c.R; StrokeG = c.G; StrokeB = c.B; StrokeA = c.A; }
+        public Color GetFillColor() => Color.FromArgb(FillA, FillR, FillG, FillB);
+        public void SetFillColor(Color c) { FillR = c.R; FillG = c.G; FillB = c.B; FillA = c.A; }
+
+        public Rect Bounds
+        {
+            get
+            {
+                double x = System.Math.Min(Start.X, End.X);
+                double y = System.Math.Min(Start.Y, End.Y);
+                double w = System.Math.Abs(End.X - Start.X);
+                double h = System.Math.Abs(End.Y - Start.Y);
+                return new Rect(x, y, w, h);
+            }
+        }
     }
 
     /// <summary>
