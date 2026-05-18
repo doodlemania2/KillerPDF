@@ -12,6 +12,12 @@ namespace TDPdf
     public abstract class PageAnnotation
     {
         public int PageIndex { get; set; }
+
+        /// <summary>
+        /// Deep-copies this annotation. Used by the snapshot-undo subsystem so that subsequent
+        /// in-place mutations (move, resize, content edits) don't leak into the captured state.
+        /// </summary>
+        public abstract PageAnnotation Clone();
     }
 
     /// <summary>
@@ -38,6 +44,12 @@ namespace TDPdf
 
         public Color GetColor() => Color.FromArgb(ColorA, ColorR, ColorG, ColorB);
         public void SetColor(Color c) { ColorR = c.R; ColorG = c.G; ColorB = c.B; ColorA = c.A; }
+
+        public override PageAnnotation Clone() => new TextAnnotation
+        {
+            PageIndex = PageIndex, Position = Position, Content = Content, FontSize = FontSize,
+            ColorR = ColorR, ColorG = ColorG, ColorB = ColorB, ColorA = ColorA
+        };
     }
 
     public class InkAnnotation : PageAnnotation
@@ -51,6 +63,14 @@ namespace TDPdf
 
         public Color GetColor() => Color.FromArgb(ColorA, ColorR, ColorG, ColorB);
         public void SetColor(Color c) { ColorR = c.R; ColorG = c.G; ColorB = c.B; ColorA = c.A; }
+
+        public override PageAnnotation Clone() => new InkAnnotation
+        {
+            PageIndex = PageIndex,
+            Points = new List<Point>(Points),
+            StrokeWidth = StrokeWidth,
+            ColorR = ColorR, ColorG = ColorG, ColorB = ColorB, ColorA = ColorA
+        };
     }
 
     public class HighlightAnnotation : PageAnnotation
@@ -63,6 +83,12 @@ namespace TDPdf
 
         public Color GetColor() => Color.FromArgb(ColorA, ColorR, ColorG, ColorB);
         public void SetColor(Color c) { ColorR = c.R; ColorG = c.G; ColorB = c.B; ColorA = c.A; }
+
+        public override PageAnnotation Clone() => new HighlightAnnotation
+        {
+            PageIndex = PageIndex, Bounds = Bounds,
+            ColorR = ColorR, ColorG = ColorG, ColorB = ColorB, ColorA = ColorA
+        };
     }
 
     /// <summary>
@@ -71,6 +97,8 @@ namespace TDPdf
     public class CropAnnotation : PageAnnotation
     {
         public Rect Bounds { get; set; }
+
+        public override PageAnnotation Clone() => new CropAnnotation { PageIndex = PageIndex, Bounds = Bounds };
     }
 
     /// <summary>
@@ -84,6 +112,13 @@ namespace TDPdf
         public string OriginalContent { get; set; } = "";
         public double FontSize { get; set; } = 14;
         public string FontName { get; set; } = "Segoe UI";
+
+        public override PageAnnotation Clone() => new TextEditAnnotation
+        {
+            PageIndex = PageIndex, OriginalBounds = OriginalBounds, Position = Position,
+            NewContent = NewContent, OriginalContent = OriginalContent,
+            FontSize = FontSize, FontName = FontName
+        };
     }
 
     /// <summary>
@@ -96,6 +131,13 @@ namespace TDPdf
         public string? OriginalImageData { get; set; }
         public string? ReplacementImagePath { get; set; }
         public bool IsDeleted { get; set; }
+
+        public override PageAnnotation Clone() => new ImageEditAnnotation
+        {
+            PageIndex = PageIndex, OriginalBounds = OriginalBounds, TargetBounds = TargetBounds,
+            OriginalImageData = OriginalImageData, ReplacementImagePath = ReplacementImagePath,
+            IsDeleted = IsDeleted
+        };
     }
 
     /// <summary>
@@ -106,6 +148,17 @@ namespace TDPdf
         public List<List<Point>> Strokes { get; set; } = new();
         /// <summary>Base-64 encoded PNG. Non-null = image sig; null = drawn strokes.</summary>
         public string? ImageData { get; set; }
+
+        public override PageAnnotation Clone()
+        {
+            var copy = new SignatureAnnotation
+            {
+                PageIndex = PageIndex, Position = Position, Scale = Scale,
+                SourceWidth = SourceWidth, SourceHeight = SourceHeight, ImageData = ImageData
+            };
+            foreach (var stroke in Strokes) copy.Strokes.Add(new List<Point>(stroke));
+            return copy;
+        }
     }
 
     /// <summary>
@@ -149,6 +202,14 @@ namespace TDPdf
                 return new Rect(x, y, w, h);
             }
         }
+
+        public override PageAnnotation Clone() => new ShapeAnnotation
+        {
+            PageIndex = PageIndex, Kind = Kind, Start = Start, End = End,
+            StrokeR = StrokeR, StrokeG = StrokeG, StrokeB = StrokeB, StrokeA = StrokeA,
+            FillR = FillR, FillG = FillG, FillB = FillB, FillA = FillA,
+            HasFill = HasFill, StrokeWidth = StrokeWidth
+        };
     }
 
     /// <summary>
@@ -158,6 +219,12 @@ namespace TDPdf
     {
         /// <summary>Base-64 encoded image bytes (PNG, JPG, BMP, etc.).</summary>
         public string ImageData { get; set; } = "";
+
+        public override PageAnnotation Clone() => new ImageAnnotation
+        {
+            PageIndex = PageIndex, Position = Position, Scale = Scale,
+            SourceWidth = SourceWidth, SourceHeight = SourceHeight, ImageData = ImageData
+        };
     }
 
     /// <summary>

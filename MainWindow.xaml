@@ -19,6 +19,7 @@
         <CommandBinding Command="{x:Static local:MainWindow.NewDocumentCommand}" Executed="NewCommand_Executed"/>
         <CommandBinding Command="{x:Static local:MainWindow.CloseFileCommand}" Executed="CloseFileCommand_Executed"/>
         <CommandBinding Command="{x:Static local:MainWindow.UndoCommand}" Executed="UndoCommand_Executed"/>
+        <CommandBinding Command="{x:Static local:MainWindow.RedoCommand}" Executed="RedoCommand_Executed"/>
         <CommandBinding Command="{x:Static local:MainWindow.SaveAsCommand}" Executed="SaveAsCommand_Executed"/>
         <CommandBinding Command="{x:Static local:MainWindow.AboutCommand}" Executed="AboutCommand_Executed"/>
     </Window.CommandBindings>
@@ -32,6 +33,8 @@
         <KeyBinding Key="N" Modifiers="Control" Command="{x:Static local:MainWindow.NewDocumentCommand}"/>
         <KeyBinding Key="W" Modifiers="Control" Command="{x:Static local:MainWindow.CloseFileCommand}"/>
         <KeyBinding Key="Z" Modifiers="Control" Command="{x:Static local:MainWindow.UndoCommand}"/>
+        <KeyBinding Key="Y" Modifiers="Control" Command="{x:Static local:MainWindow.RedoCommand}"/>
+        <KeyBinding Key="Z" Modifiers="Control+Shift" Command="{x:Static local:MainWindow.RedoCommand}"/>
         <KeyBinding Key="F1" Command="{x:Static local:MainWindow.AboutCommand}"/>
         <KeyBinding Key="D0" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomResetRoutedCommand}"/>
         <KeyBinding Key="OemPlus" Modifiers="Control" Command="{x:Static local:MainWindow.ZoomInRoutedCommand}"/>
@@ -563,6 +566,7 @@
             </MenuItem>
             <MenuItem Header="_Edit">
                 <MenuItem Header="_Undo"            InputGestureText="Ctrl+Z"       Click="Undo_Click"/>
+                <MenuItem Header="_Redo"            InputGestureText="Ctrl+Y"       Click="Redo_Click"/>
                 <Separator/>
                 <MenuItem Header="_Find…"           InputGestureText="Ctrl+F"       Command="{x:Static ApplicationCommands.Find}"/>
                 <Separator/>

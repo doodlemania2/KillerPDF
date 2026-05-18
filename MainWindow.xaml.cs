@@ -33,6 +33,7 @@ namespace TDPdf
         public static readonly RoutedUICommand NewDocumentCommand = new("New Document", "NewDocument", typeof(MainWindow));
         public static readonly RoutedUICommand CloseFileCommand = new("Close File", "CloseFile", typeof(MainWindow));
         public static readonly RoutedUICommand UndoCommand = new("Undo", "Undo", typeof(MainWindow));
+        public static readonly RoutedUICommand RedoCommand = new("Redo", "Redo", typeof(MainWindow));
         public static readonly RoutedUICommand SaveAsCommand = new("Save As", "SaveAs", typeof(MainWindow));
         public static readonly RoutedUICommand AboutCommand = new("About TDPdf", "About", typeof(MainWindow));
 
@@ -54,10 +55,19 @@ namespace TDPdf
         private readonly Dictionary<(int pageIndex, int dpiX), RenderedPage> _renderCache = new();
         private double _currentDpiScale = 1.0;
 
-        // Undo stack — each entry is either an annotation removal or a full document snapshot.
-        private enum UndoKind { Annotation, Document }
-        private readonly record struct UndoEntry(UndoKind Kind, int PageIdx = -1, byte[]? DocBytes = null);
-        private readonly Stack<UndoEntry> _undoStack = new();
+        // Snapshot-based undo/redo.
+        // PageSnapshot: deep-cloned annotation list for one page captured BEFORE the mutation.
+        // Document: full PDF byte snapshot for crop/insert/delete/reorder; acts as a history barrier
+        //   (clears mixed-kind entries to avoid restoring page snapshots onto a re-ordered document).
+        private enum UndoKind { PageSnapshot, Document }
+        private readonly record struct UndoEntry(
+            UndoKind Kind,
+            int PageIdx = -1,
+            byte[]? DocBytes = null,
+            List<PageAnnotation>? PageAnnotations = null);
+        private const int MaxUndoEntries = 100;
+        private readonly LinkedList<UndoEntry> _undoStack = new();
+        private readonly LinkedList<UndoEntry> _redoStack = new();
         private bool _isDrawing;
         private Point _drawStart;
         private UIElement? _activePreview;
@@ -937,6 +947,7 @@ namespace TDPdf
                 FileNameLabel.Text = System.IO.Path.GetFileName(result.DisplayPath);
                 _annotations.Clear();
                 _undoStack.Clear();
+                _redoStack.Clear();
                 _renderDims.Clear();
                 InvalidateRenderCache();
                 _contentEditor.ClearCache();
@@ -3262,6 +3273,7 @@ namespace TDPdf
             if (_currentTool == EditTool.EditImage && _imageResizeHandle is not null &&
                 e.OriginalSource == _imageResizeHandle && _selectedAnnotation is ImageEditAnnotation selectedImage)
             {
+                PushPageSnapshot(selectedImage.PageIndex);
                 _isResizingImage = true;
                 _resizingImageEdit = selectedImage;
                 _imageResizeStart = pos;
@@ -3279,6 +3291,7 @@ namespace TDPdf
                 if (pos.X >= hx && pos.X <= hx + _resizeHandle.Width &&
                     pos.Y >= hy && pos.Y <= hy + _resizeHandle.Height)
                 {
+                    PushPageSnapshot(rsa.PageIndex);
                     _isResizingSig = true;
                     _resizeSigStart = pos;
                     _resizeSigStartScale = rsa.Scale;
@@ -3328,6 +3341,7 @@ namespace TDPdf
                                     ClearSelection();
                                     RenderAllAnnotations(pageIdx);
                                     SelectAnnotation(pa, paBounds);
+                                    PushPageSnapshot(pa.PageIndex);
                                     _isDraggingAnnot = true;
                                     _dragAnnotStart = pos;
                                     _dragAnnotOrigPos = pa.Position;
@@ -3491,6 +3505,7 @@ namespace TDPdf
                         {
                             if (HitTestAnnotation(erasePageList[i], pos, out _))
                             {
+                                PushPageSnapshot(pageIdx);
                                 erasePageList.RemoveAt(i);
                                 RenderAllAnnotations(pageIdx);
                                 MarkDirty();
@@ -3557,6 +3572,7 @@ namespace TDPdf
 
         private void BeginAnnotMove(PageAnnotation annot, Point pos)
         {
+            PushPageSnapshot(annot.PageIndex);
             _isMovingAnnot = true;
             _movingAnnot = annot;
             _moveStartCanvas = pos;
@@ -3566,6 +3582,7 @@ namespace TDPdf
 
         private void BeginAnnotResize(PageAnnotation annot, Point pos)
         {
+            PushPageSnapshot(annot.PageIndex);
             _isResizingAnnot = true;
             _resizingAnnot = annot;
             _resizeStartCanvas = pos;
@@ -3585,6 +3602,31 @@ namespace TDPdf
             TextAnnotation t => (Position: t.Position, FontSize: t.FontSize),
             _ => 0
         };
+
+        /// <summary>
+        /// Returns true if the annotation's geometry matches the captured original — used to
+        /// drop no-op snapshots when a click without drag triggered BeginAnnotMove/Resize.
+        /// </summary>
+        private static bool GeometryUnchanged(PageAnnotation annot, object? original)
+        {
+            if (original is null) return false;
+            switch (annot)
+            {
+                case ShapeAnnotation s when original is ValueTuple<Point, Point, double> o:
+                    return s.Start == o.Item1 && s.End == o.Item2;
+                case HighlightAnnotation h when original is Rect r:
+                    return h.Bounds == r;
+                case InkAnnotation ink when original is List<Point> pts:
+                    if (ink.Points.Count != pts.Count) return false;
+                    for (int i = 0; i < pts.Count; i++)
+                        if (ink.Points[i] != pts[i]) return false;
+                    return true;
+                case TextAnnotation t when original is ValueTuple<Point, double> tp:
+                    return t.Position == tp.Item1;
+                default:
+                    return false;
+            }
+        }
 
         private void ApplyMoveTo(PageAnnotation annot, Point cur, Point start, object original)
         {
@@ -3824,12 +3866,15 @@ namespace TDPdf
             if (_isMovingAnnot)
             {
                 var ma = _movingAnnot;
+                var origGeom = _moveOriginalGeom;
                 _isMovingAnnot = false;
                 _movingAnnot = null;
                 _moveOriginalGeom = null;
                 if (_annotationCanvas.IsMouseCaptured) _annotationCanvas.ReleaseMouseCapture();
                 if (ma is not null)
                 {
+                    if (GeometryUnchanged(ma, origGeom))
+                        DropTopSnapshotIfFor(ma.PageIndex);
                     RenderAllAnnotations(ma.PageIndex);
                     if (HitTestAnnotation(ma, GetAnyPointInside(ma), out Rect mb))
                         SelectAnnotation(ma, mb);
@@ -3841,12 +3886,15 @@ namespace TDPdf
             if (_isResizingAnnot)
             {
                 var ra = _resizingAnnot;
+                var origGeom = _resizeOriginalGeom;
                 _isResizingAnnot = false;
                 _resizingAnnot = null;
                 _resizeOriginalGeom = null;
                 if (_annotationCanvas.IsMouseCaptured) _annotationCanvas.ReleaseMouseCapture();
                 if (ra is not null)
                 {
+                    if (GeometryUnchanged(ra, origGeom))
+                        DropTopSnapshotIfFor(ra.PageIndex);
                     RenderAllAnnotations(ra.PageIndex);
                     if (HitTestAnnotation(ra, GetAnyPointInside(ra), out Rect rb))
                         SelectAnnotation(ra, rb);
@@ -3863,11 +3911,14 @@ namespace TDPdf
                 {
                     var da = _dragAnnot;
                     _dragAnnot = null;
+                    if (da.Position == _dragAnnotOrigPos)
+                        DropTopSnapshotIfFor(da.PageIndex);
+                    else
+                        MarkDirty();
                     RenderAllAnnotations(da.PageIndex);
                     double w = da.SourceWidth * da.Scale;
                     double h = da.SourceHeight * da.Scale;
                     SelectAnnotation(da, new Rect(da.Position.X, da.Position.Y, w, h));
-                    MarkDirty();
                 }
                 return;
             }
@@ -3882,6 +3933,10 @@ namespace TDPdf
                     // Final re-render and re-select to reposition handle cleanly
                     var sa = _resizeSigAnnot;
                     _resizeSigAnnot = null;
+                    if (sa.Scale == _resizeSigStartScale)
+                        DropTopSnapshotIfFor(sa.PageIndex);
+                    else
+                        MarkDirty();
                     RenderAllAnnotations(sa.PageIndex);
                     double newW = sa.SourceWidth * sa.Scale;
                     double newH = sa.SourceHeight * sa.Scale;
@@ -3931,9 +3986,17 @@ namespace TDPdf
             {
                 _isResizingImage = false;
                 _annotationCanvas.ReleaseMouseCapture();
-                RenderAllAnnotations(_resizingImageEdit.PageIndex);
-                SelectAnnotation(_resizingImageEdit, _resizingImageEdit.TargetBounds);
-                MarkDirty();
+                var resizing = _resizingImageEdit;
+                if (resizing.TargetBounds == _imageResizeOriginalBounds)
+                {
+                    DropTopSnapshotIfFor(resizing.PageIndex);
+                }
+                else
+                {
+                    MarkDirty();
+                }
+                RenderAllAnnotations(resizing.PageIndex);
+                SelectAnnotation(resizing, resizing.TargetBounds);
                 SetStatus("Image resize committed - save to apply white-out + overdraw");
                 _resizingImageEdit = null;
                 return;
@@ -4441,7 +4504,10 @@ namespace TDPdf
             if (_selectedAnnotation is null) return;
             int pageIdx = _selectedAnnotation.PageIndex;
             if (_annotations.ContainsKey(pageIdx))
+            {
+                PushPageSnapshot(pageIdx);
                 _annotations[pageIdx].Remove(_selectedAnnotation);
+            }
             ClearSelection();
             RenderAllAnnotations(pageIdx);
             MarkDirty();
@@ -5123,7 +5189,9 @@ namespace TDPdf
             if (ctx.ExistingAnnotation is not null)
             {
                 // Update the existing annotation in place — avoids duplicate whiteout layers
+                PushPageSnapshot(ctx.ExistingAnnotation.PageIndex);
                 ctx.ExistingAnnotation.NewContent = newText;
+                MarkDirty();
             }
             else
             {
@@ -5221,6 +5289,7 @@ namespace TDPdf
             };
             if (dlg.ShowDialog() != true) return;
 
+            PushPageSnapshot(edit.PageIndex);
             edit.ReplacementImagePath = dlg.FileName;
             edit.IsDeleted = false;
             RenderAllAnnotations(edit.PageIndex);
@@ -5231,6 +5300,7 @@ namespace TDPdf
 
         private void DeleteImageEdit(ImageEditAnnotation edit)
         {
+            PushPageSnapshot(edit.PageIndex);
             edit.IsDeleted = true;
             RenderAllAnnotations(edit.PageIndex);
             SelectAnnotation(edit, edit.TargetBounds);
@@ -5240,6 +5310,7 @@ namespace TDPdf
 
         private void ResetImageEditSize(ImageEditAnnotation edit)
         {
+            PushPageSnapshot(edit.PageIndex);
             edit.TargetBounds = edit.OriginalBounds;
             RenderAllAnnotations(edit.PageIndex);
             SelectAnnotation(edit, edit.TargetBounds);
@@ -5406,18 +5477,62 @@ namespace TDPdf
         // Annotation management
         // ============================================================
 
+        // ============================================================
+        // Snapshot-based undo helpers
+        // ============================================================
+
+        private void PushUndo(UndoEntry entry)
+        {
+            _undoStack.AddLast(entry);
+            while (_undoStack.Count > MaxUndoEntries)
+                _undoStack.RemoveFirst();
+            _redoStack.Clear();
+        }
+
+        /// <summary>
+        /// Deep-clone the current annotation list for <paramref name="pageIdx"/> and push it
+        /// onto the undo stack. Must be called BEFORE the mutation. Clears redo and trims to cap.
+        /// </summary>
+        private void PushPageSnapshot(int pageIdx)
+        {
+            if (pageIdx < 0) return;
+            var snapshot = _annotations.TryGetValue(pageIdx, out var list)
+                ? list.Select(a => a.Clone()).ToList()
+                : new List<PageAnnotation>();
+            PushUndo(new UndoEntry(UndoKind.PageSnapshot, pageIdx, PageAnnotations: snapshot));
+        }
+
+        /// <summary>
+        /// Pops the top entry if (and only if) it is a PageSnapshot for the given page.
+        /// Used to discard no-op snapshots when a move/resize gesture ended without movement.
+        /// </summary>
+        private void DropTopSnapshotIfFor(int pageIdx)
+        {
+            if (_undoStack.Count == 0) return;
+            var top = _undoStack.Last!.Value;
+            if (top.Kind == UndoKind.PageSnapshot && top.PageIdx == pageIdx)
+                _undoStack.RemoveLast();
+        }
+
+        private static List<PageAnnotation> CloneList(List<PageAnnotation>? src) =>
+            src is null ? new List<PageAnnotation>() : src.Select(a => a.Clone()).ToList();
+
+        // ============================================================
+
         private void AddAnnotation(PageAnnotation annotation)
         {
+            PushPageSnapshot(annotation.PageIndex);
             if (!_annotations.ContainsKey(annotation.PageIndex))
                 _annotations[annotation.PageIndex] = [];
             _annotations[annotation.PageIndex].Add(annotation);
-            _undoStack.Push(new UndoEntry(UndoKind.Annotation, annotation.PageIndex));
             MarkDirty();
         }
 
         /// <summary>
         /// Saves the current in-memory document bytes onto the undo stack so that
         /// document-level operations (crop, delete page, merge, reorder) can be undone.
+        /// Document edits are a hard history barrier: page-level snapshots from before this
+        /// edit refer to a different document layout, so we clear the stacks here.
         /// Must be called BEFORE modifying _doc.
         /// </summary>
         private void PushDocUndo()
@@ -5425,7 +5540,9 @@ namespace TDPdf
             if (_doc is null) return;
             using var ms = new System.IO.MemoryStream();
             _doc.Save(ms);
-            _undoStack.Push(new UndoEntry(UndoKind.Document, DocBytes: ms.ToArray()));
+            _undoStack.Clear();
+            _redoStack.Clear();
+            _undoStack.AddLast(new UndoEntry(UndoKind.Document, DocBytes: ms.ToArray()));
         }
 
         private void RenderTextAnnotation(TextAnnotation ta)
@@ -5720,26 +5837,70 @@ namespace TDPdf
 
         private void Undo_Click(object sender, RoutedEventArgs e)
         {
-            if (_undoStack.Count == 0)
+            ApplyUndoRedoStep(_undoStack, _redoStack, "undo");
+        }
+
+        private void Redo_Click(object sender, RoutedEventArgs e)
+        {
+            ApplyUndoRedoStep(_redoStack, _undoStack, "redo");
+        }
+
+        private void RedoCommand_Executed(object sender, ExecutedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            Redo_Click(sender, e);
+        }
+
+        /// <summary>
+        /// Pops one entry from <paramref name="source"/>, captures the current state matching
+        /// that entry's kind into <paramref name="target"/> (so the inverse step is available),
+        /// and applies the popped entry to the document/annotation state.
+        /// </summary>
+        private void ApplyUndoRedoStep(LinkedList<UndoEntry> source, LinkedList<UndoEntry> target, string label)
+        {
+            if (source.Count == 0)
             {
-                SetStatus("Nothing to undo");
+                SetStatus(label == "undo" ? "Nothing to undo" : "Nothing to redo");
                 return;
             }
 
-            var entry = _undoStack.Pop();
+            // Cancel any active transient gesture/edit before mutating state.
+            CancelActiveGesture();
 
-            if (entry.Kind == UndoKind.Annotation)
+            var entry = source.Last!.Value;
+            source.RemoveLast();
+
+            if (entry.Kind == UndoKind.PageSnapshot)
             {
                 int pageIdx = entry.PageIdx;
-                if (_annotations.ContainsKey(pageIdx) && _annotations[pageIdx].Count > 0)
-                    _annotations[pageIdx].RemoveAt(_annotations[pageIdx].Count - 1);
+                // Capture the inverse step for redo (or re-undo)
+                var current = _annotations.TryGetValue(pageIdx, out var curList)
+                    ? curList.Select(a => a.Clone()).ToList()
+                    : new List<PageAnnotation>();
+                target.AddLast(new UndoEntry(UndoKind.PageSnapshot, pageIdx, PageAnnotations: current));
+
+                var restored = CloneList(entry.PageAnnotations);
+                foreach (var a in restored) a.PageIndex = pageIdx;
+                _annotations[pageIdx] = restored;
                 ClearSelection();
                 RenderAllAnnotations(pageIdx);
-                SetStatus("Undid last annotation");
+                MarkDirty();
+                SetStatus(label == "undo" ? "Undid annotation change" : "Redid annotation change");
             }
-            else // Document snapshot
+            else // Document
             {
                 if (entry.DocBytes is null) return;
+                // Capture current document bytes for the inverse step.
+                byte[]? currentBytes = null;
+                if (_doc is not null)
+                {
+                    using var ms = new System.IO.MemoryStream();
+                    _doc.Save(ms);
+                    currentBytes = ms.ToArray();
+                }
+                if (currentBytes is not null)
+                    target.AddLast(new UndoEntry(UndoKind.Document, DocBytes: currentBytes));
+
                 int selectedIdx = PageList.SelectedIndex;
                 var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                     $"tdpdf_undo_{Guid.NewGuid():N}.pdf");
@@ -5747,6 +5908,11 @@ namespace TDPdf
                 _doc?.Close();
                 _doc = PdfReader.Open(tempPath, PdfDocumentOpenMode.Modify);
                 _currentFile = tempPath;
+                // Document edits are a history barrier: page snapshots from before/after refer
+                // to a different page layout. Drop them on both stacks (except the just-captured
+                // inverse Document entry on `target`).
+                ClearPageSnapshotsOnly(source);
+                ClearPageSnapshotsExceptLast(target);
                 _annotations.Clear();
                 _renderDims.Clear();
                 ClearSelection();
@@ -5756,9 +5922,63 @@ namespace TDPdf
                     PageList.SelectedIndex = selectedIdx;
                 else if (PageList.Items.Count > 0)
                     PageList.SelectedIndex = 0;
-                SetStatus("Undid document change");
+                SetStatus(label == "undo" ? "Undid document change" : "Redid document change");
             }
         }
+
+        private static void ClearPageSnapshotsOnly(LinkedList<UndoEntry> list)
+        {
+            var node = list.First;
+            while (node is not null)
+            {
+                var next = node.Next;
+                if (node.Value.Kind == UndoKind.PageSnapshot)
+                    list.Remove(node);
+                node = next;
+            }
+        }
+
+        private static void ClearPageSnapshotsExceptLast(LinkedList<UndoEntry> list)
+        {
+            // Preserve the most recently added Document inverse entry (always the tail) but
+            // strip any prior PageSnapshot entries that would refer to the wrong layout.
+            var tail = list.Last;
+            var node = list.First;
+            while (node is not null && node != tail)
+            {
+                var next = node.Next;
+                if (node.Value.Kind == UndoKind.PageSnapshot)
+                    list.Remove(node);
+                node = next;
+            }
+        }
+
+        /// <summary>
+        /// Cancels any in-flight drag/resize/move/inline-edit so undo/redo can safely replace
+        /// the underlying annotation instances.
+        /// </summary>
+        private void CancelActiveGesture()
+        {
+            if (_activeTextBox is not null) CancelTextEdit();
+            if (_isPanning) EndPan();
+            _isDrawing = false;
+            _isSelecting = false;
+            _isDraggingAnnot = false;
+            _isResizingSig = false;
+            _isResizingImage = false;
+            _isMovingAnnot = false;
+            _isResizingAnnot = false;
+            _movingAnnot = null;
+            _moveOriginalGeom = null;
+            _resizingAnnot = null;
+            _resizeOriginalGeom = null;
+            _dragAnnot = null;
+            _resizeSigAnnot = null;
+            _resizingImageEdit = null;
+            if (_annotationCanvas != null && _annotationCanvas.IsMouseCaptured)
+                _annotationCanvas.ReleaseMouseCapture();
+        }
+
 
         private void ClearAnnotations_Click(object sender, RoutedEventArgs e)
         {
@@ -5766,6 +5986,7 @@ namespace TDPdf
             if (pageIdx < 0) return;
             if (_annotations.ContainsKey(pageIdx) && _annotations[pageIdx].Count > 0)
             {
+                PushPageSnapshot(pageIdx);
                 _annotations[pageIdx].Clear();
                 MarkDirty();
             }
@@ -5816,6 +6037,7 @@ namespace TDPdf
             InvalidateRenderCache();
             _contentEditor.ClearCache();
             _undoStack.Clear();
+            _redoStack.Clear();
             _renderDims.Clear();
             _allSearchRects.Clear();
             _searchResultPages.Clear();
